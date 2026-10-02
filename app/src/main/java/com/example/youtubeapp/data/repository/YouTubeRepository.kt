@@ -33,10 +33,10 @@ class YouTubeRepository(private val context: Context) {
     ): SearchResult = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val searchList = youtube.search().list("snippet")
+            val searchList = youtube.search().list(listOf("snippet"))
             searchList.q = query
             searchList.maxResults = maxResults
-            searchList.type = "video"
+            searchList.type = listOf("video")
             searchList.pageToken = pageToken
 
             val response = searchList.execute()
@@ -64,8 +64,8 @@ class YouTubeRepository(private val context: Context) {
     ): VideoDetails? = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val videoList = youtube.videos().list("snippet,contentDetails,statistics")
-            videoList.id = videoId
+            val videoList = youtube.videos().list(listOf("snippet,contentDetails,statistics"))
+            videoList.id = listOf(videoId)
 
             val response = videoList.execute()
             val item = response.items.firstOrNull() ?: return@withContext null
@@ -79,8 +79,8 @@ class YouTubeRepository(private val context: Context) {
                 channelId = item.snippet.channelId,
                 publishedAt = item.snippet.publishedAt.toString(),
                 duration = item.contentDetails?.duration ?: "",
-                viewCount = item.statistics?.viewCount?.toLongOrNull() ?: 0,
-                likeCount = item.statistics?.likeCount?.toLongOrNull() ?: 0
+                viewCount = item.statistics?.viewCount?.toString()?.toLongOrNull() ?: 0,
+                likeCount = item.statistics?.likeCount?.toString()?.toLongOrNull() ?: 0
             )
 
             VideoDetails(
@@ -101,7 +101,7 @@ class YouTubeRepository(private val context: Context) {
     ): SearchResult = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val videoList = youtube.videos().list("snippet,contentDetails,statistics")
+            val videoList = youtube.videos().list(listOf("snippet,contentDetails,statistics"))
             videoList.chart = "mostPopular"
             videoList.regionCode = regionCode
             videoList.maxResults = 20
@@ -118,8 +118,8 @@ class YouTubeRepository(private val context: Context) {
                     channelId = item.snippet.channelId,
                     publishedAt = item.snippet.publishedAt.toString(),
                     duration = item.contentDetails?.duration ?: "",
-                    viewCount = item.statistics?.viewCount?.toLongOrNull() ?: 0,
-                    likeCount = item.statistics?.likeCount?.toLongOrNull() ?: 0
+                    viewCount = item.statistics?.viewCount?.toString()?.toLongOrNull() ?: 0,
+                    likeCount = item.statistics?.likeCount?.toString()?.toLongOrNull() ?: 0
                 )
             }
             SearchResult(videos, response.nextPageToken)
@@ -135,10 +135,10 @@ class YouTubeRepository(private val context: Context) {
     ): SearchResult = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val searchList = youtube.search().list("snippet")
+            val searchList = youtube.search().list(listOf("snippet"))
             searchList.channelId = channelId
             searchList.maxResults = 20
-            searchList.type = "video"
+            searchList.type = listOf("video")
             searchList.pageToken = pageToken
 
             val response = searchList.execute()
@@ -165,7 +165,7 @@ class YouTubeRepository(private val context: Context) {
     ): List<Channel> = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val subsList = youtube.subscriptions().list("snippet,contentDetails")
+            val subsList = youtube.subscriptions().list(listOf("snippet,contentDetails"))
             subsList.mine = true
             subsList.maxResults = 50
             subsList.pageToken = pageToken
@@ -190,7 +190,7 @@ class YouTubeRepository(private val context: Context) {
     ): List<Playlist> = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val playlistsList = youtube.playlists().list("snippet,contentDetails")
+            val playlistsList = youtube.playlists().list(listOf("snippet,contentDetails"))
             playlistsList.mine = true
             playlistsList.maxResults = 50
             playlistsList.pageToken = pageToken
@@ -216,7 +216,7 @@ class YouTubeRepository(private val context: Context) {
     ): List<CaptionTrack> = withContext(Dispatchers.IO) {
         try {
             val youtube = getYouTubeService(accessToken)
-            val captionsList = youtube.captions().list("snippet", videoId)
+            val captionsList = youtube.captions().list(listOf("snippet"), videoId)
 
             val response = captionsList.execute()
             response.items.map { item ->
