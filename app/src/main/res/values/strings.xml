@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YouTube App</string>
+    <string name="settings">Настройки</string>
+    <string name="tab_info">Информация</string>
+    <string name="tab_comments">Комментарии</string>
+    <string name="tab_related">Похожие</string>
+    <string name="default_web_client_id">YOUR_WEB_CLIENT_ID</string>
+</resources>
