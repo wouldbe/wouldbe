@@ -33,10 +33,27 @@
                 android:layout_height="250dp"
                 android:background="@android:color/black">
 
+                <androidx.media3.ui.PlayerView
+                    android:id="@+id/playerView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:visibility="gone"
+                    app:show_buffering="always"
+                    app:use_controller="true" />
+
                 <WebView
                     android:id="@+id/playerWebView"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent" />
+
+                <TextView
+                    android:id="@+id/playerStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="Загрузка потока..."
+                    android:textColor="@android:color/white"
+                    android:textSize="14sp" />
 
             </FrameLayout>
 
@@ -223,24 +240,7 @@
                     android:id="@+id/tabLayout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp">
-
-                    <com.google.android.material.tabs.TabItem
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Информация" />
-
-                    <com.google.android.material.tabs.TabItem
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Комментарии" />
-
-                    <com.google.android.material.tabs.TabItem
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Похожие" />
-
-                </com.google.android.material.tabs.TabLayout>
+                    android:layout_marginTop="16dp" />
 
                 <!-- Tab Content -->
                 <FrameLayout

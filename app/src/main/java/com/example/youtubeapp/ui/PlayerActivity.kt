@@ -2,20 +2,29 @@ package com.example.youtubeapp.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.example.youtubeapp.R
 import com.example.youtubeapp.YouTubeApp
 import com.example.youtubeapp.data.model.CaptionTrack
 import com.example.youtubeapp.data.model.VideoQuality
 import com.example.youtubeapp.data.repository.AuthRepository
+import com.example.youtubeapp.data.repository.StreamRepository
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityPlayerBinding
 import com.example.youtubeapp.service.DownloadService
-import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.material.tabs.TabLayout
 import kotlinx.coroutines.launch
 
@@ -28,9 +37,21 @@ class PlayerActivity : AppCompatActivity() {
     private var accessToken: String? = null
     private var captionTracks: List<CaptionTrack> = emptyList()
     private var currentQuality: VideoQuality = VideoQuality.HD
+    private var streamResult: StreamRepository.StreamResult? = null
+
+    private var exoPlayer: ExoPlayer? = null
+    private var trackSelector: DefaultTrackSelector? = null
 
     private val youTubeRepository by lazy {
         YouTubeRepository(this)
+    }
+
+    private val streamRepository by lazy {
+        StreamRepository(this)
+    }
+
+    private val proxyRepository by lazy {
+        (application as YouTubeApp).proxyRepository
     }
 
     private val settingsRepository by lazy {
@@ -56,10 +77,148 @@ class PlayerActivity : AppCompatActivity() {
             currentQuality = settingsRepository.videoQuality
 
             setupUI()
-            loadPlayer()
+            startPlayback()
             loadVideoDetails()
-            loadCaptionTracks()
         }
+    }
+
+    /**
+     * Primary path: extract stream URLs via the VISIONOS innertube client (works
+     * through the web proxy) and play with ExoPlayer.
+     * Fallback: legacy YouTube IFrame player in WebView.
+     */
+    private fun startPlayback() {
+        binding.playerStatus.visibility = View.VISIBLE
+        binding.playerStatus.text = getString(R.string.player_loading_stream)
+
+        lifecycleScope.launch {
+            val data = runCatching { streamRepository.extract(videoId) }.getOrNull()
+            var started = false
+
+            if (data != null) {
+                started = runCatching {
+                    streamResult = data
+                    initExoPlayer(data)
+                    populateCaptionsFromStream(data)
+                    applyStreamDetails(data)
+                }.onFailure { e ->
+                    Log.e(TAG, "ExoPlayer init failed: $e")
+                    releasePlayer()
+                }.isSuccess
+            } else {
+                Log.w(TAG, "stream extraction failed, falling back to IFrame player")
+            }
+
+            binding.playerStatus.visibility = View.GONE
+            if (!started) {
+                binding.playerWebView.visibility = View.VISIBLE
+                loadPlayer()
+            }
+        }
+    }
+
+    private fun initExoPlayer(data: StreamRepository.StreamResult) {
+        releasePlayer()
+
+        val httpDataSource = DefaultHttpDataSource.Factory()
+            .setUserAgent(StreamRepository.VISIONOS_USER_AGENT)
+            .setConnectTimeoutMs(25_000)
+            .setReadTimeoutMs(30_000)
+
+        val mediaSourceFactory = HlsMediaSource.Factory(httpDataSource)
+            .setAllowChunklessPreparation(true)
+
+        val qualityHeight = when (currentQuality) {
+            VideoQuality.LOW -> 360
+            VideoQuality.MEDIUM -> 480
+            VideoQuality.HD -> 720
+            VideoQuality.FULL_HD -> 1080
+            VideoQuality.FOUR_K -> 2160
+        }
+
+        val selector = DefaultTrackSelector(this).apply {
+            setParameters(buildUponParameters().setMaxVideoSize(3840, 2160))
+        }
+        trackSelector = selector
+
+        val player = ExoPlayer.Builder(this)
+            .setTrackSelector(selector)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+
+        player.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e(TAG, "ExoPlayer error: ${error.errorCodeName} ${error.message}")
+                Toast.makeText(
+                    this@PlayerActivity,
+                    "Ошибка воспроизведения: ${error.errorCodeName}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        })
+
+        binding.playerView.player = player
+        binding.playerView.visibility = View.VISIBLE
+        binding.playerWebView.visibility = View.GONE
+
+        applyQualityConstraint(qualityHeight, selector)
+        player.setMediaItem(buildMediaItem(data))
+        player.prepare()
+        player.playWhenReady = settingsRepository.autoPlay
+
+        exoPlayer = player
+    }
+
+    private fun buildMediaItem(data: StreamRepository.StreamResult): MediaItem {
+        val hls = data.hlsUrl
+            ?: data.progressive?.url
+            ?: throw IllegalStateException("no playable stream")
+
+        val builder = MediaItem.Builder().setUri(hls)
+
+        val activeCaptions = if (captionTracks.isNotEmpty()) captionTracks else data.captionTracks
+        if (settingsRepository.subtitlesEnabled) {
+            val selected = activeCaptions.firstOrNull {
+                it.languageCode == settingsRepository.subtitleLanguage
+            } ?: activeCaptions.firstOrNull()
+            if (selected != null) {
+                val subtitleUri = android.net.Uri.parse(selected.url)
+                    .buildUpon()
+                    .appendQueryParameter("fmt", "vtt")
+                    .build()
+                builder.setSubtitleConfigurations(
+                    listOf(
+                        MediaItem.SubtitleConfiguration.Builder(subtitleUri)
+                            .setMimeType(MimeTypes.TEXT_VTT)
+                            .setLanguage(selected.languageCode)
+                            .setLabel(selected.languageName)
+                            .build()
+                    )
+                )
+            }
+        }
+        return builder.build()
+    }
+
+    private fun applyQualityConstraint(maxHeight: Int, selector: DefaultTrackSelector) {
+        selector.setParameters(
+            selector.buildUponParameters().setMaxVideoSize(3840, maxHeight)
+        )
+    }
+
+    private fun reloadStream() {
+        val data = streamResult ?: return
+        val player = exoPlayer ?: return
+        val position = player.currentPosition
+        player.setMediaItem(buildMediaItem(data))
+        player.prepare()
+        player.seekTo(position)
+    }
+
+    private fun releasePlayer() {
+        exoPlayer?.release()
+        exoPlayer = null
+        trackSelector = null
     }
 
     private fun loadPlayer() {
@@ -131,6 +290,7 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun evaluateJs(script: String) {
+        if (exoPlayer != null) return
         binding.playerWebView.post {
             binding.playerWebView.evaluateJavascript(script, null)
         }
@@ -169,6 +329,15 @@ class PlayerActivity : AppCompatActivity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 currentQuality = VideoQuality.valueOf(qualities[position])
                 settingsRepository.videoQuality = currentQuality
+
+                val height = when (currentQuality) {
+                    VideoQuality.LOW -> 360
+                    VideoQuality.MEDIUM -> 480
+                    VideoQuality.HD -> 720
+                    VideoQuality.FULL_HD -> 1080
+                    VideoQuality.FOUR_K -> 2160
+                }
+                trackSelector?.let { applyQualityConstraint(height, it) }
                 evaluateJs("setQuality('${currentQuality.name}')")
             }
 
@@ -180,7 +349,7 @@ class PlayerActivity : AppCompatActivity() {
         binding.subtitleSwitch.isChecked = settingsRepository.subtitlesEnabled
         binding.subtitleSwitch.setOnCheckedChangeListener { _, isChecked ->
             settingsRepository.subtitlesEnabled = isChecked
-            evaluateJs("enableSubtitles($isChecked)")
+            if (exoPlayer != null) reloadStream() else evaluateJs("enableSubtitles($isChecked)")
         }
     }
 
@@ -229,6 +398,22 @@ class PlayerActivity : AppCompatActivity() {
         // TODO: Load related videos
     }
 
+    /** Fills UI from innertube details when the Data API is unavailable. */
+    private fun applyStreamDetails(data: StreamRepository.StreamResult) {
+        if (data.description.isNotBlank() && binding.videoDescription.text.isNullOrBlank()) {
+            binding.videoDescription.text = data.description
+        }
+        if (data.viewCount > 0 && binding.viewCount.text.isNullOrBlank()) {
+            binding.viewCount.text = formatViewCount(data.viewCount)
+        }
+        if (data.publishDate.isNotBlank() && binding.publishDate.text.isNullOrBlank()) {
+            binding.publishDate.text = data.publishDate.substringBefore('T')
+        }
+        if (channelTitle.isBlank() && data.author.isNotBlank()) {
+            binding.channelTitle.text = data.author
+        }
+    }
+
     private fun loadVideoDetails() {
         lifecycleScope.launch {
             try {
@@ -238,36 +423,38 @@ class PlayerActivity : AppCompatActivity() {
                     binding.viewCount.text = formatViewCount(it.video.viewCount)
                     binding.likeCount.text = formatLikeCount(it.video.likeCount)
                     binding.publishDate.text = it.video.publishedAt
-                }
+                } ?: applyStreamDetails(streamResult ?: return@launch)
             } catch (e: Exception) {
-                Toast.makeText(this@PlayerActivity, "Ошибка загрузки деталей: ${e.message}", Toast.LENGTH_SHORT).show()
+                Log.w(TAG, "video details via Data API failed: ${e.message}")
+                applyStreamDetails(streamResult ?: return@launch)
             }
         }
     }
 
-    private fun loadCaptionTracks() {
-        lifecycleScope.launch {
-            try {
-                captionTracks = youTubeRepository.getCaptionTracks(videoId, accessToken)
-                val languages = captionTracks.map { "${it.languageName}${if (it.isAutoGenerated) " (авто)" else ""}" }
-                val adapter = ArrayAdapter(this@PlayerActivity, android.R.layout.simple_spinner_item, languages)
-                adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                binding.subtitleSpinner.adapter = adapter
+    private fun populateCaptionsFromStream(data: StreamRepository.StreamResult) {
+        if (data.captionTracks.isEmpty()) return
+        captionTracks = data.captionTracks
 
-                if (captionTracks.isNotEmpty()) {
-                    binding.subtitleSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                        override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
-                            val lang = captionTracks[position].languageCode
-                            settingsRepository.subtitleLanguage = lang
-                            evaluateJs("setSubtitleLanguage('$lang')")
-                        }
+        val languages = data.captionTracks.map {
+            "${it.languageName}${if (it.isAutoGenerated) " (авто)" else ""}"
+        }
+        val adapter = ArrayAdapter(this@PlayerActivity, android.R.layout.simple_spinner_item, languages)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        binding.subtitleSpinner.adapter = adapter
 
-                        override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-                    }
-                }
-            } catch (e: Exception) {
-                // Captions not available
+        val selectedIndex = data.captionTracks.indexOfFirst {
+            it.languageCode == settingsRepository.subtitleLanguage
+        }
+        if (selectedIndex >= 0) binding.subtitleSpinner.setSelection(selectedIndex)
+
+        binding.subtitleSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View?, position: Int, id: Long) {
+                settingsRepository.subtitleLanguage = captionTracks[position].languageCode
+                if (exoPlayer != null && settingsRepository.subtitlesEnabled) reloadStream()
+                else evaluateJs("setSubtitleLanguage('${captionTracks[position].languageCode}')")
             }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
     }
 
@@ -275,7 +462,7 @@ class PlayerActivity : AppCompatActivity() {
         val intent = Intent(this, DownloadService::class.java).apply {
             putExtra(DownloadService.EXTRA_VIDEO_ID, videoId)
             putExtra(DownloadService.EXTRA_VIDEO_TITLE, videoTitle)
-            putExtra(DownloadService.EXTRA_THUMBNAIL_URL, "")
+            putExtra(DownloadService.EXTRA_THUMBNAIL_URL, streamResult?.thumbnailUrl ?: "")
             putExtra(DownloadService.EXTRA_QUALITY, currentQuality.name)
         }
         startService(intent)
@@ -298,12 +485,38 @@ class PlayerActivity : AppCompatActivity() {
         }
     }
 
+    private var resumeAfterResumePending = false
+
+    override fun onResume() {
+        super.onResume()
+        if (resumeAfterResumePending) {
+            resumeAfterResumePending = false
+            exoPlayer?.play()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val playing = exoPlayer?.isPlaying == true
+        if (playing) {
+            resumeAfterResumePending = true
+            exoPlayer?.pause()
+        }
+    }
+
+    override fun onDestroy() {
+        releasePlayer()
+        super.onDestroy()
+    }
+
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true
     }
 
     companion object {
+        private const val TAG = "PlayerActivity"
+
         const val EXTRA_VIDEO_ID = "extra_video_id"
         const val EXTRA_VIDEO_TITLE = "extra_video_title"
         const val EXTRA_CHANNEL_TITLE = "extra_channel_title"
