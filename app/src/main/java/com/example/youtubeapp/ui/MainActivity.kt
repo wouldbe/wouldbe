@@ -192,14 +192,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Personalized home feed when the Data API is unavailable:
+     * Personalized part of the home feed:
      *  1. uploads of subscribed channels (OAuth only, no API key);
-     *  2. YouTube watch-next recommendations seeded by local watch history;
-     *  3. rotating search feed as filler so the list always has content.
-     * All parts are merged and deduplicated.
+     *  2. YouTube watch-next recommendations seeded by local watch history.
+     * Merged and deduplicated; empty when signed out and nothing watched.
      */
-    private suspend fun loadPersonalizedFeed(): SearchResult {
-        Log.i(TAG, "personalized feed: start (token=${accessToken != null})")
+    private suspend fun personalizedParts(): List<Video> {
+        Log.i(TAG, "personalized: start (token=${accessToken != null})")
 
         val subscriptions = accessToken?.let { token ->
             runCatching { youTubeRepository.getSubscriptionUploads(token) }
@@ -212,15 +211,24 @@ class MainActivity : AppCompatActivity() {
             feedRepository.recommendations(seeds)
         } else emptyList()
 
-        val filler = feedRepository.home()
-
+        val parts = (subscriptions + recommendations).distinctBy { it.id }
         Log.i(
             TAG,
-            "personalized feed: subs=${subscriptions.size} recs=${recommendations.size} " +
-                "filler=${filler.videos.size} seeds=${seeds.size}"
+            "personalized: subs=${subscriptions.size} recs=${recommendations.size} " +
+                "seeds=${seeds.size} total=${parts.size}"
         )
+        return parts
+    }
 
-        val merged = (subscriptions + recommendations + filler.videos)
+    /**
+     * Personalized home feed when the Data API is unavailable:
+     * personalized parts plus a rotating search feed as filler so the list
+     * always has content.
+     */
+    private suspend fun loadPersonalizedFeed(): SearchResult {
+        val parts = personalizedParts()
+        val filler = feedRepository.home()
+        val merged = (parts + filler.videos)
             .distinctBy { it.id }
             .take(FEED_MAX_ITEMS)
         return SearchResult(merged, filler.nextPageToken)
@@ -238,6 +246,14 @@ class MainActivity : AppCompatActivity() {
                     usingFeedSource = true
                 } else {
                     usingFeedSource = false
+                    // personalization on top of the official (non-personal) feed
+                    val personal = personalizedParts()
+                    if (personal.isNotEmpty()) {
+                        result = SearchResult(
+                            (personal + result.videos).distinctBy { it.id }.take(FEED_MAX_ITEMS),
+                            result.nextPageToken
+                        )
+                    }
                 }
                 videoAdapter.submitList(result.videos)
                 nextPageToken = result.nextPageToken

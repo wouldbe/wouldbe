@@ -22,7 +22,7 @@
 
 Прямой доступ к youtube.com с многих провайдеров режется DPI, а DNS отдаёт SERVFAIL, поэтому весь трафик идёт через прокси (настраивается в приложении).
 
-Data API для `videos.list` блокируется (бот-детект на датацентр-IP), поэтому URL потоков извлекаются через innertube player API с клиентом **VISIONOS** (clientName 101) — он не требует PO-токенов и не триггерит проверку «подтвердите, что вы не бот»:
+URL потоков не отдаёт Data API — они извлекаются через innertube player API с клиентом **VISIONOS** (clientName 101): он не требует PO-токенов и не триггерит бот-детект, который получают обычные WEB-клиенты с датацентрных прокси:
 
 1. `GET https://www.youtube.com/` с куками `SOCS=CAI; PREF=hl=en&tz=UTC` → `VISITOR_DATA` + session cookies;
 2. `POST /youtubei/v1/player` с VISIONOS-контекстом → подписанные googlevideo URL, HLS-манифест, itag-список, captionTracks.
@@ -32,8 +32,10 @@ Data API для `videos.list` блокируется (бот-детект на �
 ### Лента и поиск
 
 - Поиск: `POST /youtubei/v1/search` (`{query}`), пагинация через `continuation` того же endpoint (`/next` для поиска не работает — 400).
-- Домашняя лента для гостя пуста (`FEwhat_to_watch` → «Try searching to get started», `FEtrending`/`FEexplore` → 400), поэтому как лента используется поиск по ротации широких запросов.
-- `YouTubeRepository` (Data API) остаётся основным источником; при пустом ответе `MainActivity` переключается на `FeedRepository`.
+- Домашняя лента для гостя пуста (`FEwhat_to_watch` → «Try searching to get started», `FEtrending`/`FEexplore` → 400), поэтому как запасная лента используется поиск по ротации широких запросов.
+- `YouTubeRepository` (Data API) — основной источник (поиск, метаданные, «Популярное»); при пустом ответе `MainActivity` переключается на `FeedRepository`.
+- **Персонализация ленты**: поверх официального фида добавляются (1) загрузки каналов из ваших подписок — `subscriptions.list`/`channels.list`/`playlistItems.list` строго по OAuth-токену, **без параметра `key`**, поэтому не зависит от ограничений ключа; (2) рекомендации innertube `/next`, посаженные на локальную историю просмотров (`WatchHistory`, до 30 видео). Всё склеивается без дублей (cap 40), пагинация — от Data API.
+- Вкладка «Похожие» в плеере: watch-next список текущего видео (`/next`).
 
 ## Требования
 
