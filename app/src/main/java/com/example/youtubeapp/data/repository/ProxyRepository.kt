@@ -86,6 +86,11 @@ class ProxyRepository(context: Context) {
     fun applyToSystem() {
         val config = currentConfig
         val active = config.isEnabled && config.isValid() && config.type != ProxyType.NONE
+        Log.i(
+            TAG,
+            "applyToSystem: active=$active type=${config.type} " +
+                "host=${config.host}:${config.port} enabled=${config.isEnabled}"
+        )
         if (active) {
             System.setProperty("http.proxyHost", config.host)
             System.setProperty("http.proxyPort", config.port.toString())

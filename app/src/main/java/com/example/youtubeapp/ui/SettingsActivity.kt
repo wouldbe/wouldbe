@@ -1,6 +1,7 @@
 package com.example.youtubeapp.ui
 
 import android.os.Bundle
+import android.util.Log
 import android.view.MenuItem
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -13,6 +14,8 @@ import com.example.youtubeapp.data.model.VideoQuality
 import com.example.youtubeapp.databinding.ActivitySettingsBinding
 
 class SettingsActivity : AppCompatActivity() {
+
+    private val TAG = "SettingsActivity"
 
     private lateinit var binding: ActivitySettingsBinding
 
@@ -141,12 +144,23 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun saveProxySettings() {
-        val type = ProxyType.valueOf(binding.proxyTypeSpinner.selectedItem.toString())
+        val typeText = binding.proxyTypeSpinner.selectedItem?.toString() ?: "NONE"
         val host = binding.proxyHostInput.text.toString()
         val port = binding.proxyPortInput.text.toString().toIntOrNull() ?: 0
         val username = binding.proxyUsernameInput.text.toString()
         val password = binding.proxyPasswordInput.text.toString()
         val enabled = binding.proxyEnabledSwitch.isChecked
+        Log.i(
+            TAG,
+            "saveProxy: typeText='$typeText' host='$host' port=$port enabled=$enabled"
+        )
+
+        val type = try {
+            ProxyType.valueOf(typeText)
+        } catch (e: IllegalArgumentException) {
+            Log.e(TAG, "saveProxy: unknown type '$typeText', falling back to HTTP")
+            ProxyType.HTTP
+        }
 
         val config = ProxyConfig(type, host, port, username, password, enabled)
         proxyRepository.currentConfig = config
