@@ -15,9 +15,11 @@ import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.youtubeapp.R
 import com.example.youtubeapp.YouTubeApp
+import com.example.youtubeapp.data.model.SearchResult
 import com.example.youtubeapp.data.model.Video
 import com.example.youtubeapp.data.repository.AuthRepository
 import com.example.youtubeapp.data.repository.FeedRepository
+import com.example.youtubeapp.data.repository.WatchHistory
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityMainBinding
 import com.example.youtubeapp.ui.adapter.VideoAdapter
@@ -32,6 +34,7 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val TAG = "MainActivity"
+        const val FEED_MAX_ITEMS = 40
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -188,6 +191,41 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.subtitle = account?.displayName
     }
 
+    /**
+     * Personalized home feed when the Data API is unavailable:
+     *  1. uploads of subscribed channels (OAuth only, no API key);
+     *  2. YouTube watch-next recommendations seeded by local watch history;
+     *  3. rotating search feed as filler so the list always has content.
+     * All parts are merged and deduplicated.
+     */
+    private suspend fun loadPersonalizedFeed(): SearchResult {
+        Log.i(TAG, "personalized feed: start (token=${accessToken != null})")
+
+        val subscriptions = accessToken?.let { token ->
+            runCatching { youTubeRepository.getSubscriptionUploads(token) }
+                .onFailure { Log.w(TAG, "subscription feed failed: ${it.message}") }
+                .getOrDefault(emptyList())
+        } ?: emptyList()
+
+        val seeds = WatchHistory.recentIds(this, 5)
+        val recommendations = if (seeds.isNotEmpty()) {
+            feedRepository.recommendations(seeds)
+        } else emptyList()
+
+        val filler = feedRepository.home()
+
+        Log.i(
+            TAG,
+            "personalized feed: subs=${subscriptions.size} recs=${recommendations.size} " +
+                "filler=${filler.videos.size} seeds=${seeds.size}"
+        )
+
+        val merged = (subscriptions + recommendations + filler.videos)
+            .distinctBy { it.id }
+            .take(FEED_MAX_ITEMS)
+        return SearchResult(merged, filler.nextPageToken)
+    }
+
     private fun loadTrendingVideos() {
         Log.i(TAG, "loadTrendingVideos: begin")
         showLoading(true)
@@ -196,8 +234,7 @@ class MainActivity : AppCompatActivity() {
                 var result = youTubeRepository.getTrendingVideos(accessToken)
                 Log.i(TAG, "loadTrendingVideos: got ${result.videos.size} videos (Data API)")
                 if (result.videos.isEmpty()) {
-                    Log.i(TAG, "loadTrendingVideos: Data API empty/blocked, using innertube feed")
-                    result = feedRepository.home()
+                    result = loadPersonalizedFeed()
                     usingFeedSource = true
                 } else {
                     usingFeedSource = false

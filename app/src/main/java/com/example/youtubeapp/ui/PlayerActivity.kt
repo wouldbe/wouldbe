@@ -5,9 +5,11 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import com.bumptech.glide.Glide
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
@@ -19,9 +21,12 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.example.youtubeapp.R
 import com.example.youtubeapp.YouTubeApp
 import com.example.youtubeapp.data.model.CaptionTrack
+import com.example.youtubeapp.data.model.Video
 import com.example.youtubeapp.data.model.VideoQuality
 import com.example.youtubeapp.data.repository.AuthRepository
+import com.example.youtubeapp.data.repository.FeedRepository
 import com.example.youtubeapp.data.repository.StreamRepository
+import com.example.youtubeapp.data.repository.WatchHistory
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityPlayerBinding
 import com.example.youtubeapp.service.DownloadService
@@ -41,9 +46,14 @@ class PlayerActivity : AppCompatActivity() {
 
     private var exoPlayer: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
+    private var relatedLoaded: Boolean = false
 
     private val youTubeRepository by lazy {
         YouTubeRepository(this)
+    }
+
+    private val feedRepository by lazy {
+        FeedRepository(this)
     }
 
     private val streamRepository by lazy {
@@ -71,6 +81,9 @@ class PlayerActivity : AppCompatActivity() {
             finish()
             return
         }
+
+        // seed for the personalized recommendation feed on the home screen
+        WatchHistory.add(this, videoId)
 
         lifecycleScope.launch {
             accessToken = AuthRepository.getAccessToken(this@PlayerActivity)
@@ -395,7 +408,73 @@ class PlayerActivity : AppCompatActivity() {
         binding.infoContainer.visibility = View.GONE
         binding.commentsContainer.visibility = View.GONE
         binding.relatedContainer.visibility = View.VISIBLE
-        // TODO: Load related videos
+        if (!relatedLoaded) {
+            relatedLoaded = true
+            loadRelatedVideos()
+        }
+    }
+
+    /**
+     * Recommendations for the current video from the innertube /next endpoint
+     * (same source the YouTube watch page uses for its related list).
+     */
+    private fun loadRelatedVideos() {
+        lifecycleScope.launch {
+            try {
+                val items = feedRepository.related(videoId)
+                Log.i(TAG, "related: ${items.size} items for $videoId")
+                renderRelated(items)
+            } catch (e: Exception) {
+                Log.e(TAG, "related load failed: ${e.message}", e)
+            }
+        }
+    }
+
+    private fun renderRelated(items: List<Video>) {
+        Log.i(TAG, "renderRelated: begin, items=${items.size}")
+        binding.relatedContainer.removeAllViews()
+        if (items.isEmpty()) {
+            binding.relatedContainer.addView(
+                TextView(this).apply {
+                    text = getString(R.string.player_no_related)
+                    textSize = 14f
+                    setPadding(32, 32, 32, 32)
+                }
+            )
+            return
+        }
+        for (item in items) {
+            val row = layoutInflater.inflate(
+                R.layout.item_related_video, binding.relatedContainer, false
+            )
+            row.findViewById<TextView>(R.id.relatedTitle).text = item.title
+            row.findViewById<TextView>(R.id.relatedMeta).text =
+                listOf(item.channelTitle, item.duration)
+                    .filter { it.isNotBlank() }
+                    .joinToString("  •  ")
+            val duration = row.findViewById<TextView>(R.id.relatedDuration)
+            if (item.duration.isNotBlank()) {
+                duration.text = item.duration
+                duration.visibility = View.VISIBLE
+            }
+            Glide.with(this)
+                .load(item.thumbnailUrl)
+                .centerCrop()
+                .into(row.findViewById(R.id.relatedThumbnail))
+            row.setOnClickListener {
+                WatchHistory.add(this@PlayerActivity, item.id)
+                startActivity(
+                    Intent(this@PlayerActivity, PlayerActivity::class.java).apply {
+                        putExtra(EXTRA_VIDEO_ID, item.id)
+                        putExtra(EXTRA_VIDEO_TITLE, item.title)
+                        putExtra(EXTRA_CHANNEL_TITLE, item.channelTitle)
+                    }
+                )
+                finish()
+            }
+            binding.relatedContainer.addView(row)
+        }
+        Log.i(TAG, "renderRelated: done, childCount=${binding.relatedContainer.childCount}")
     }
 
     /** Fills UI from innertube details when the Data API is unavailable. */

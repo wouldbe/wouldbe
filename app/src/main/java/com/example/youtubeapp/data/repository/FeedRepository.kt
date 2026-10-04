@@ -90,6 +90,35 @@ class FeedRepository(context: Context) {
     }
 
     /**
+     * YouTube recommendations for one video: the watch-next list of
+     * POST /youtubei/v1/next (lockupViewModel entries).
+     */
+    suspend fun related(videoId: String): List<Video> = withContext(Dispatchers.IO) {
+        parse(postBody(JSONObject().put("videoId", videoId), "next")).videos
+    }
+
+    /**
+     * Recommendations seeded by the user's watch history: related lists of the
+     * most recent videos, deduplicated and with the seeds themselves removed.
+     */
+    suspend fun recommendations(seeds: List<String>): List<Video> = withContext(Dispatchers.IO) {
+        val seedSet = seeds.toHashSet()
+        val result = LinkedHashMap<String, Video>()
+        for (seed in seeds.take(MAX_SEEDS)) {
+            try {
+                val items = related(seed)
+                Log.i(TAG, "recommendations: seed=$seed -> ${items.size} items")
+                for (v in items) {
+                    if (v.id !in seedSet) result.putIfAbsent(v.id, v)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "recommendations: seed=$seed failed: ${e.message}")
+            }
+        }
+        result.values.toList()
+    }
+
+    /**
      * Home feed substitute: search feed over a broad query that changes by day,
      * so the tab shows varied, paginated content instead of an empty nudge.
      */
@@ -98,7 +127,10 @@ class FeedRepository(context: Context) {
         post(JSONObject().put("query", HOME_QUERIES[day % HOME_QUERIES.size]))
     }
 
-    private suspend fun post(body: JSONObject): SearchResult {
+    private suspend fun post(body: JSONObject, endpoint: String = "search"): SearchResult =
+        parse(postBody(body, endpoint))
+
+    private suspend fun postBody(body: JSONObject, endpoint: String): String {
         val client = buildClient()
         val sess = runCatching { session(client) }.getOrElse { e ->
             Log.e(TAG, "session failed: ${e.message}", e)
@@ -123,7 +155,7 @@ class FeedRepository(context: Context) {
         )
 
         val request = Request.Builder()
-            .url("https://www.youtube.com/youtubei/v1/search?prettyPrint=false")
+            .url("https://www.youtube.com/youtubei/v1/$endpoint?prettyPrint=false")
             .header("Content-Type", "application/json")
             .header("User-Agent", USER_AGENT)
             .header("X-Youtube-Client-Name", "1")
@@ -140,11 +172,11 @@ class FeedRepository(context: Context) {
             if (response.code == 401 || response.code == 403) {
                 cachedSession = null // stale visitor data - drop it for the next call
             }
-            if (!response.isSuccessful) throw FeedException("search HTTP ${response.code}")
+            if (!response.isSuccessful) throw FeedException("$endpoint HTTP ${response.code}")
             response.body?.string() ?: ""
         }
 
-        return parse(raw)
+        return raw
     }
 
     private fun parse(raw: String): SearchResult {
@@ -169,6 +201,8 @@ class FeedRepository(context: Context) {
                 for (key in VIDEO_RENDERERS) {
                     node.optJSONObject(key)?.let { obj -> parseVideo(obj)?.let { out.add(it) } }
                 }
+                // watch-next recommendations are rendered as lockupViewModel
+                node.optJSONObject("lockupViewModel")?.let { obj -> parseLockup(obj)?.let { out.add(it) } }
                 val keys = node.keys()
                 while (keys.hasNext()) {
                     collectVideos(node.opt(keys.next()), out)
@@ -176,6 +210,111 @@ class FeedRepository(context: Context) {
             }
             is JSONArray -> {
                 for (i in 0 until node.length()) collectVideos(node.opt(i), out)
+            }
+        }
+    }
+
+    /**
+     * lockupViewModel (used by /next): nested view models instead of
+     * videoRenderer fields - title/content/channel/counts live under
+     * metadata.lockupMetadataViewModel, the id is inside the onTap commands.
+     */
+    private fun parseLockup(obj: JSONObject): Video? {
+        val id = findVideoId(obj) ?: return null
+
+        val meta = obj.optJSONObject("metadata")
+            ?.optJSONObject("lockupMetadataViewModel") ?: return null
+        val title = meta.optJSONObject("title")?.optString("content") ?: ""
+
+        val rows = meta.optJSONObject("metadata")
+            ?.optJSONObject("contentMetadataViewModel")
+            ?.optJSONArray("metadataRows")
+        val firstPart = rows?.optJSONObject(0)?.optJSONArray("metadataParts")?.optJSONObject(0)
+        val secondRow = rows?.optJSONObject(1)?.optJSONArray("metadataParts")
+
+        val channelTitle = firstPart?.optJSONObject("text")?.optString("content") ?: ""
+        // channel id lives in the avatar command of the title image
+        val channelId = meta.optJSONObject("image")
+            ?.optJSONObject("decoratedAvatarViewModel")
+            ?.optJSONObject("avatar")
+            ?.optJSONObject("avatarViewModel")
+            ?.optJSONObject("commandContext")?.optJSONObject("onTap")
+            ?.optJSONObject("innertubeCommand")
+            ?.optJSONObject("browseEndpoint")?.optString("browseId") ?: ""
+
+        val viewsText = secondRow?.optJSONObject(0)?.optJSONArray("metadataParts")
+            ?.optJSONObject(0)
+            ?.let { p -> p.optJSONObject("text")?.optString("content") ?: "" } ?: ""
+        val publishedText = secondRow?.optJSONObject(0)?.optJSONArray("metadataParts")
+            ?.optJSONObject(1)
+            ?.let { p -> p.optJSONObject("text")?.optString("content") ?: "" } ?: ""
+
+        val thumbs = obj.optJSONObject("contentImage")
+            ?.optJSONObject("thumbnailViewModel")
+            ?.optJSONObject("image")?.optJSONArray("sources")
+        val thumbnailUrl = (0 until (thumbs?.length() ?: 0))
+            .mapNotNull { thumbs?.optJSONObject(it) }
+            .maxByOrNull { it.optInt("width", 0) }
+            ?.optString("url") ?: ""
+
+        val duration = obj.optJSONObject("contentImage")
+            ?.optJSONObject("thumbnailViewModel")
+            ?.optJSONArray("overlays")
+            ?.optJSONObject(0)
+            ?.optJSONObject("thumbnailBottomOverlayViewModel")
+            ?.optJSONArray("badges")
+            ?.optJSONObject(0)
+            ?.optJSONObject("thumbnailBadgeViewModel")
+            ?.optString("text") ?: ""
+
+        if (title.isBlank()) return null
+        return Video(
+            id = id,
+            title = title,
+            description = "",
+            thumbnailUrl = thumbnailUrl,
+            channelTitle = channelTitle,
+            channelId = channelId,
+            publishedAt = publishedText,
+            duration = duration,
+            viewCount = parseCompactCount(viewsText)
+        )
+    }
+
+    /** First 11-char videoId anywhere inside an object (commands, endpoints...). */
+    private fun findVideoId(node: Any?): String? {
+        when (node) {
+            is JSONObject -> {
+                val direct = node.optString("videoId")
+                if (direct.length == 11) return direct
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    findVideoId(node.opt(keys.next()))?.let { return it }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) findVideoId(node.opt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    /** "13M" / "1,2K" / "27,033,780 views" -> number. */
+    private fun parseCompactCount(text: String): Long {
+        if (text.isBlank()) return 0
+        val cleaned = text.filter { it.isDigit() || it == '.' || it == ',' }
+            .replace(",", "")
+        val suffix = text.lastOrNull { it.isLetter() }?.uppercaseChar()
+        val base = cleaned.substringBefore('.').ifBlank { return 0 }.toLongOrNull() ?: return 0
+        val mantissa = cleaned.substringAfter('.', "").take(1).toIntOrNull() ?: 0
+        val value = base * 10 + mantissa
+        return when (suffix) {
+            'K' -> value * 1_000L
+            'M' -> value * 1_000_000L
+            'B' -> value * 1_000_000_000L
+            else -> {
+                // plain number, e.g. "27033780 views"
+                text.filter { it.isDigit() }.toLongOrNull() ?: 0L
             }
         }
     }
@@ -258,6 +397,9 @@ class FeedRepository(context: Context) {
     companion object {
         private const val TAG = "FeedRepository"
         private const val WEB_CLIENT_VERSION = "2.20260708.00.00"
+
+        /** How many watched videos seed the recommendation chain. */
+        private const val MAX_SEEDS = 3
 
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +

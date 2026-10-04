@@ -26,7 +26,7 @@ class YouTubeRepository(private val context: Context) {
     private val jsonFactory = GsonFactory.getDefaultInstance()
     private val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
 
-    private fun getYouTubeService(accessToken: String?): YouTube {
+    private fun getYouTubeService(accessToken: String?, withKey: Boolean = true): YouTube {
         val credential = com.google.api.client.googleapis.auth.oauth2.GoogleCredential()
         if (accessToken != null) {
             credential.accessToken = accessToken
@@ -38,7 +38,7 @@ class YouTubeRepository(private val context: Context) {
         val certSha1 = ANDROID_CERT_SHA1
         val initializer = HttpRequestInitializer { request ->
             credential.initialize(request)
-            if (apiKey.isNotBlank()) {
+            if (withKey && apiKey.isNotBlank()) {
                 request.url.put("key", apiKey)
             }
             request.headers["X-Android-Package"] = packageName
@@ -243,6 +243,75 @@ class YouTubeRepository(private val context: Context) {
             }
         } catch (e: IOException) {
             Log.e(TAG, "YouTube API error: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    /**
+     * Latest uploads of the channels the user is subscribed to.
+     *
+     * Uses OAuth access token ONLY - no API key parameter. The key itself is
+     * currently blocked (API_KEY_SERVICE_BLOCKED), while OAuth requests are
+     * authenticated separately and may still pass; on failure returns empty.
+     */
+    suspend fun getSubscriptionUploads(
+        accessToken: String?,
+        maxChannels: Int = 8,
+        perChannel: Int = 5
+    ): List<Video> = withContext(Dispatchers.IO) {
+        if (accessToken.isNullOrBlank()) return@withContext emptyList()
+        try {
+            val youtube = getYouTubeService(accessToken, withKey = false)
+
+            val subs = youtube.subscriptions().list(listOf("snippet"))
+                .setMine(true)
+                .setMaxResults(50)
+                .execute()
+            val channelIds = subs.items.mapNotNull { it.snippet.resourceId?.channelId }
+            Log.i(TAG, "oauth: subscriptions=${channelIds.size}")
+            if (channelIds.isEmpty()) return@withContext emptyList()
+
+            val channels = youtube.channels().list(listOf("contentDetails"))
+                .setId(channelIds.take(maxChannels))
+                .execute()
+            val uploadPlaylists = channels.items.mapNotNull {
+                it.contentDetails?.relatedPlaylists?.uploads
+            }
+
+            val videos = mutableListOf<Video>()
+            for (playlistId in uploadPlaylists) {
+                try {
+                    val items = youtube.playlistItems().list(listOf("snippet"))
+                        .setPlaylistId(playlistId)
+                        .setMaxResults(perChannel.toLong())
+                        .execute()
+                    for (item in items.items) {
+                        val sn = item.snippet ?: continue
+                        val videoId = sn.resourceId?.videoId ?: continue
+                        videos.add(
+                            Video(
+                                id = videoId,
+                                title = sn.title ?: "",
+                                description = sn.description ?: "",
+                                thumbnailUrl = sn.thumbnails?.medium?.url
+                                    ?: sn.thumbnails?.default?.url ?: "",
+                                channelTitle = sn.channelTitle ?: "",
+                                channelId = sn.channelId ?: "",
+                                publishedAt = sn.publishedAt?.toString() ?: ""
+                            )
+                        )
+                    }
+                } catch (e: IOException) {
+                    Log.w(TAG, "oauth: playlist $playlistId failed: ${e.message}")
+                }
+            }
+            videos
+                .sortedByDescending { it.publishedAt }
+                .also { Log.i(TAG, "oauth: subscription uploads=${it.size}") }
+        } catch (e: IOException) {
+            val reason = (e as? com.google.api.client.googleapis.json.GoogleJsonResponseException)
+                ?.details?.errors?.firstOrNull()?.reason
+            Log.e(TAG, "oauth subscriptions feed failed: ${reason ?: e.message}")
             emptyList()
         }
     }

@@ -6,7 +6,9 @@
 
 - ✅ Авторизация через Google-аккаунт (OAuth 2.0, `GoogleAuthUtil` access token)
 - ✅ Поиск видео и лента: YouTube Data API v3 c фолбэком на публичный innertube API (`FeedRepository`)
+- ✅ Персональная лента: загрузки ваших подписок (OAuth без ключа) + рекомендации YouTube на основе истории просмотров
 - ✅ Воспроизведение: **ExoPlayer (media3) + HLS** через потоки innertube player API (`StreamRepository`), fallback на WebView IFrame
+- ✅ Вкладка «Похожие» в плеере — watch-next рекомендации с youtube.com
 - ✅ Поддержка HTTP/HTTPS и SOCKS5 прокси (system properties для плеера, `Settings.Global.HTTP_PROXY` для WebView, OkHttp builder)
 - ✅ Скачивание видео (`DownloadService`): прогрессивные потоки или HLS-сегменты с выбором качества
 - ✅ Настройки качества видео (144p - 4K)
