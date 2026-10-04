@@ -9,3 +9,8 @@
 .externalNativeBuild
 .cxx
 client_secret*.json
+
+# signing material - never commit
+release.keystore
+keystore.properties
+/dist/

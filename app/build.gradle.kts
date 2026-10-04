@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -18,9 +20,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            // release.keystore + keystore.properties live in the project root
+            // (both are gitignored; password can also come from the
+            // RELEASE_STORE_PASSWORD environment variable)
+            val props = rootProject.file("keystore.properties").takeIf { it.exists() }
+                ?.inputStream()
+                ?.use { stream -> Properties().apply { load(stream) } }
+                ?: Properties()
+            val envPassword = System.getenv("RELEASE_STORE_PASSWORD")
+            storeFile = rootProject.file("release.keystore")
+            storePassword = envPassword ?: props.getProperty("storePassword", "youtubeapp2026")
+            keyAlias = props.getProperty("keyAlias", "youtubeapp")
+            keyPassword = storePassword
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

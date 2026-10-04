@@ -60,6 +60,36 @@ git clone https://github.com/wouldbe/wouldbe.git
 
 4. Соберите и запустите приложение
 
+## Сборка установщика (APK)
+
+```bash
+# release (подписанный установщик) + debug
+gradlew assembleRelease assembleDebug
+```
+
+Готовые файлы копируются в `dist/`:
+
+- `dist/YouTubeApp-1.0-release.apk` — release-подпись, минимизированный размер;
+- `dist/YouTubeApp-1.0-debug.apk` — debug-подпись (SHA-1 уже прописан в ключе API).
+
+Установка на устройство/эмулятор:
+```bash
+adb install -r dist/YouTubeApp-1.0-release.apk
+```
+
+**Подпись release** — `release.keystore` (alias `youtubeapp`, пароль в gitignore-файле `keystore.properties`,
+можно переопределить переменной окружения `RELEASE_STORE_PASSWORD`). Ни ключ, ни пароль в git не попадают.
+
+**SHA-1 для Google Cloud Console** (Credentials → ключ → Android apps, нужно добавить второй отпечаток):
+
+| Ключ | SHA-1 |
+|---|---|
+| debug | `32:1D:30:91:49:6B:51:B7:7B:BD:6A:14:EC:B0:68:C4:EA:AC:03:AA` |
+| release | `41:7F:28:94:DA:67:69:CA:B6:78:68:A1:C7:50:B4:A2:F1:13:F8:C3` |
+
+Пока release-отпечаток не добавлен, Data API в release-сборке отвечает `API_KEY_ANDROID_APP_BLOCKED`,
+а лента работает через OAuth-подписки и innertube-рекомендации.
+
 ## Настройка Google API
 
 1. Перейдите в [Google Cloud Console](https://console.cloud.google.com/)
