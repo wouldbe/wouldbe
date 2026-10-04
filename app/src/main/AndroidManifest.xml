@@ -41,7 +41,7 @@
 
         <activity
             android:name=".ui.PlayerActivity"
-            android:exported="true"
+            android:exported="false"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:supportsPictureInPicture="true" />
 

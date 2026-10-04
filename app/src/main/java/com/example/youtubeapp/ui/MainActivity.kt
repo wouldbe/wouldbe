@@ -17,6 +17,7 @@ import com.example.youtubeapp.R
 import com.example.youtubeapp.YouTubeApp
 import com.example.youtubeapp.data.model.Video
 import com.example.youtubeapp.data.repository.AuthRepository
+import com.example.youtubeapp.data.repository.FeedRepository
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityMainBinding
 import com.example.youtubeapp.ui.adapter.VideoAdapter
@@ -41,8 +42,20 @@ class MainActivity : AppCompatActivity() {
     private var nextPageToken: String? = null
     private var isLoading = false
 
+    /** True when the current list came from [FeedRepository] (innertube pagination). */
+    private var usingFeedSource = false
+
     private val youTubeRepository by lazy {
         YouTubeRepository(this)
+    }
+
+    /**
+     * Innertube fallback: the Data API key is blocked (API_KEY_SERVICE_BLOCKED)
+     * and the guest home feed is empty, so search/trending fall back to
+     * [FeedRepository] when the official API returns nothing.
+     */
+    private val feedRepository by lazy {
+        FeedRepository(this)
     }
 
     private val settingsRepository by lazy {
@@ -180,10 +193,18 @@ class MainActivity : AppCompatActivity() {
         showLoading(true)
         lifecycleScope.launch {
             try {
-                val result = youTubeRepository.getTrendingVideos(accessToken)
-                Log.i(TAG, "loadTrendingVideos: got ${result.videos.size} videos")
+                var result = youTubeRepository.getTrendingVideos(accessToken)
+                Log.i(TAG, "loadTrendingVideos: got ${result.videos.size} videos (Data API)")
+                if (result.videos.isEmpty()) {
+                    Log.i(TAG, "loadTrendingVideos: Data API empty/blocked, using innertube feed")
+                    result = feedRepository.home()
+                    usingFeedSource = true
+                } else {
+                    usingFeedSource = false
+                }
                 videoAdapter.submitList(result.videos)
                 nextPageToken = result.nextPageToken
+                Log.i(TAG, "loadTrendingVideos: displayed ${result.videos.size} videos, pageToken=${nextPageToken != null}")
             } catch (e: Exception) {
                 Log.e(TAG, "loadTrendingVideos failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 Toast.makeText(this@MainActivity, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -199,9 +220,17 @@ class MainActivity : AppCompatActivity() {
         nextPageToken = null
         lifecycleScope.launch {
             try {
-                val result = youTubeRepository.searchVideos(query, accessToken)
+                var result = youTubeRepository.searchVideos(query, accessToken)
+                if (result.videos.isEmpty()) {
+                    Log.i(TAG, "search: Data API empty/blocked, using innertube search")
+                    result = feedRepository.search(query)
+                    usingFeedSource = true
+                } else {
+                    usingFeedSource = false
+                }
                 videoAdapter.submitList(result.videos)
                 nextPageToken = result.nextPageToken
+                Log.i(TAG, "searchVideos: displayed ${result.videos.size} videos for '$query', pageToken=${nextPageToken != null}")
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, "Ошибка поиска: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
@@ -218,13 +247,22 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                val result = if (currentQuery.isNotBlank()) {
-                    youTubeRepository.searchVideos(currentQuery, accessToken, nextPageToken)
-                } else {
-                    youTubeRepository.getTrendingVideos(accessToken, pageToken = nextPageToken)
+                val prevToken = nextPageToken
+                val result = when {
+                    usingFeedSource ->
+                        feedRepository.continueSearch(prevToken!!)
+                    currentQuery.isNotBlank() ->
+                        youTubeRepository.searchVideos(currentQuery, accessToken, prevToken)
+                    else ->
+                        youTubeRepository.getTrendingVideos(accessToken, pageToken = prevToken)
                 }
                 videoAdapter.submitList(videoAdapter.currentList + result.videos)
-                nextPageToken = result.nextPageToken
+                // stop paging when YouTube keeps returning the same continuation
+                nextPageToken = result.nextPageToken?.takeIf { it != prevToken }
+                Log.i(
+                    TAG,
+                    "loadMore: +${result.videos.size} videos, total=${videoAdapter.itemCount}, pageToken=${nextPageToken != null}"
+                )
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
