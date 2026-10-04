@@ -17,6 +17,7 @@ class YouTubeApp : Application() {
         instance = this
         settingsRepository = SettingsRepository(this)
         proxyRepository = ProxyRepository(this)
+        proxyRepository.applyToSystem()
     }
 
     companion object {

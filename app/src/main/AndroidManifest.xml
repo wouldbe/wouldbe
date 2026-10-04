@@ -12,6 +12,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Allows applying the proxy globally so WebView (video stream) honors it.
+         Grant with: adb shell pm grant com.example.youtubeapp android.permission.WRITE_SECURE_SETTINGS -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <application
         android:name=".YouTubeApp"
@@ -38,6 +41,7 @@
 
         <activity
             android:name=".ui.PlayerActivity"
+            android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:supportsPictureInPicture="true" />
 

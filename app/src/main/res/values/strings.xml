@@ -5,5 +5,6 @@
     <string name="tab_info">Информация</string>
     <string name="tab_comments">Комментарии</string>
     <string name="tab_related">Похожие</string>
-    <string name="default_web_client_id">864285384604-r710i12c97r6u3fhukhtnjok6jkmetnb.apps.googleusercontent.com</string>
+    <string name="default_web_client_id">864285384604-60cf9lv1rlp2b0eup14oce34tblilsak.apps.googleusercontent.com</string>
+    <string name="youtube_api_key" translatable="false">AIzaSyDuwzeSfQfl16uPcI1Qb93sQQGJUcBVfw4</string>
 </resources>

@@ -150,6 +150,7 @@ class SettingsActivity : AppCompatActivity() {
 
         val config = ProxyConfig(type, host, port, username, password, enabled)
         proxyRepository.currentConfig = config
+        proxyRepository.applyToSystem()
 
         Toast.makeText(this, "Настройки прокси сохранены", Toast.LENGTH_SHORT).show()
     }

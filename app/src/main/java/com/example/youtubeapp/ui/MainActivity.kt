@@ -2,6 +2,7 @@ package com.example.youtubeapp.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -15,6 +16,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.youtubeapp.R
 import com.example.youtubeapp.YouTubeApp
 import com.example.youtubeapp.data.model.Video
+import com.example.youtubeapp.data.repository.AuthRepository
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityMainBinding
 import com.example.youtubeapp.ui.adapter.VideoAdapter
@@ -26,6 +28,10 @@ import com.google.api.services.youtube.YouTubeScopes
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
+
+    private companion object {
+        const val TAG = "MainActivity"
+    }
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var videoAdapter: VideoAdapter
@@ -46,12 +52,18 @@ class MainActivity : AppCompatActivity() {
     private val signInLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
         try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             val account = task.getResult(Exception::class.java)
-            accessToken = account.idToken
-            loadUserData()
+            Log.i(TAG, "SIGN_IN_OK account=${account.email}")
+            lifecycleScope.launch {
+                accessToken = AuthRepository.getAccessToken(this@MainActivity)
+                Log.i(TAG, "SIGN_IN token acquired=${accessToken != null}")
+                loadUserData()
+                loadTrendingVideos()
+            }
         } catch (e: Exception) {
+            Log.e(TAG, "SIGN_IN_FAILED code=${(e as? com.google.android.gms.common.api.ApiException)?.statusCode} msg=${e.message}", e)
             Toast.makeText(this, "Ошибка авторизации: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -143,10 +155,14 @@ class MainActivity : AppCompatActivity() {
     private fun checkExistingSignIn() {
         val account = GoogleSignIn.getLastSignedInAccount(this)
         if (account != null) {
-            accessToken = account.idToken
-            loadUserData()
+            lifecycleScope.launch {
+                accessToken = AuthRepository.getAccessToken(this@MainActivity)
+                loadUserData()
+                loadTrendingVideos()
+            }
+        } else {
+            loadTrendingVideos()
         }
-        loadTrendingVideos()
     }
 
     private fun loadUserData() {
@@ -160,13 +176,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadTrendingVideos() {
+        Log.i(TAG, "loadTrendingVideos: begin")
         showLoading(true)
         lifecycleScope.launch {
             try {
                 val result = youTubeRepository.getTrendingVideos(accessToken)
+                Log.i(TAG, "loadTrendingVideos: got ${result.videos.size} videos")
                 videoAdapter.submitList(result.videos)
                 nextPageToken = result.nextPageToken
             } catch (e: Exception) {
+                Log.e(TAG, "loadTrendingVideos failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 Toast.makeText(this@MainActivity, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
                 showLoading(false)
@@ -267,6 +286,7 @@ class MainActivity : AppCompatActivity() {
     private fun signOut() {
         googleSignInClient.signOut().addOnCompleteListener {
             accessToken = null
+            AuthRepository.clear()
             binding.signInContainer.visibility = View.VISIBLE
             supportActionBar?.subtitle = null
             loadTrendingVideos()

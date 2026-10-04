@@ -1,8 +1,11 @@
 package com.example.youtubeapp.data.repository
 
 import android.content.Context
+import android.util.Log
+import com.example.youtubeapp.R
 import com.example.youtubeapp.data.model.*
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport
+import com.google.api.client.http.HttpRequestInitializer
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.youtube.YouTube
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +13,15 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 class YouTubeRepository(private val context: Context) {
+
+    private companion object {
+        const val TAG = "YouTubeRepository"
+
+        // SHA-1 of the debug signing certificate (Google Cloud API key
+        // "Android applications" restriction). Release builds must switch
+        // this to the release keystore fingerprint.
+        const val ANDROID_CERT_SHA1 = "321D3091496B51B77BBD6A14ECB068C4EAAC03AA"
+    }
 
     private val jsonFactory = GsonFactory.getDefaultInstance()
     private val httpTransport = GoogleNetHttpTransport.newTrustedTransport()
@@ -19,8 +31,24 @@ class YouTubeRepository(private val context: Context) {
         if (accessToken != null) {
             credential.accessToken = accessToken
         }
+        val apiKey = context.getString(R.string.youtube_api_key)
+        // Required by "Android application" API key restriction:
+        // without these headers Google returns API_KEY_ANDROID_APP_BLOCKED.
+        val packageName = context.packageName
+        val certSha1 = ANDROID_CERT_SHA1
+        val initializer = HttpRequestInitializer { request ->
+            credential.initialize(request)
+            if (apiKey.isNotBlank()) {
+                request.url.put("key", apiKey)
+            }
+            request.headers["X-Android-Package"] = packageName
+            request.headers["X-Android-Cert"] = certSha1
+            request.connectTimeout = 15_000
+            request.readTimeout = 20_000
+            request.numberOfRetries = 1
+        }
 
-        return YouTube.Builder(httpTransport, jsonFactory, credential)
+        return YouTube.Builder(httpTransport, jsonFactory, initializer)
             .setApplicationName("YouTubeApp")
             .build()
     }
@@ -54,6 +82,7 @@ class YouTubeRepository(private val context: Context) {
             }
             SearchResult(videos, response.nextPageToken)
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             SearchResult(emptyList())
         }
     }
@@ -90,6 +119,7 @@ class YouTubeRepository(private val context: Context) {
                 defaultLanguage = item.snippet.defaultLanguage ?: ""
             )
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             null
         }
     }
@@ -100,7 +130,9 @@ class YouTubeRepository(private val context: Context) {
         pageToken: String? = null
     ): SearchResult = withContext(Dispatchers.IO) {
         try {
+            Log.i(TAG, "trending: start (token=${accessToken != null})")
             val youtube = getYouTubeService(accessToken)
+            Log.i(TAG, "trending: service built")
             val videoList = youtube.videos().list(listOf("snippet,contentDetails,statistics"))
             videoList.chart = "mostPopular"
             videoList.regionCode = regionCode
@@ -108,6 +140,7 @@ class YouTubeRepository(private val context: Context) {
             videoList.pageToken = pageToken
 
             val response = videoList.execute()
+            Log.i(TAG, "trending: response items=${response.items?.size}")
             val videos = response.items.map { item ->
                 Video(
                     id = item.id,
@@ -124,6 +157,7 @@ class YouTubeRepository(private val context: Context) {
             }
             SearchResult(videos, response.nextPageToken)
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             SearchResult(emptyList())
         }
     }
@@ -155,6 +189,7 @@ class YouTubeRepository(private val context: Context) {
             }
             SearchResult(videos, response.nextPageToken)
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             SearchResult(emptyList())
         }
     }
@@ -180,6 +215,7 @@ class YouTubeRepository(private val context: Context) {
                 )
             }
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             emptyList()
         }
     }
@@ -206,6 +242,7 @@ class YouTubeRepository(private val context: Context) {
                 )
             }
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             emptyList()
         }
     }
@@ -228,6 +265,7 @@ class YouTubeRepository(private val context: Context) {
                 )
             }
         } catch (e: IOException) {
+            Log.e(TAG, "YouTube API error: ${e.message}", e)
             emptyList()
         }
     }

@@ -11,6 +11,7 @@ import com.example.youtubeapp.R
 import com.example.youtubeapp.YouTubeApp
 import com.example.youtubeapp.data.model.CaptionTrack
 import com.example.youtubeapp.data.model.VideoQuality
+import com.example.youtubeapp.data.repository.AuthRepository
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityPlayerBinding
 import com.example.youtubeapp.service.DownloadService
@@ -50,13 +51,15 @@ class PlayerActivity : AppCompatActivity() {
             return
         }
 
-        accessToken = GoogleSignIn.getLastSignedInAccount(this)?.idToken
-        currentQuality = settingsRepository.videoQuality
+        lifecycleScope.launch {
+            accessToken = AuthRepository.getAccessToken(this@PlayerActivity)
+            currentQuality = settingsRepository.videoQuality
 
-        setupUI()
-        loadPlayer()
-        loadVideoDetails()
-        loadCaptionTracks()
+            setupUI()
+            loadPlayer()
+            loadVideoDetails()
+            loadCaptionTracks()
+        }
     }
 
     private fun loadPlayer() {
