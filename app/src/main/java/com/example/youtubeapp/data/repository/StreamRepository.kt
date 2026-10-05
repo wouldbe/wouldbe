@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.example.youtubeapp.data.model.CaptionTrack
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -78,7 +79,26 @@ class StreamRepository(context: Context) {
             .build()
     )
 
+    /**
+     * Extracts stream URLs with retries: the homepage/session step can fail
+     * transiently through a proxy (bot-check, timeout), and each attempt uses
+     * a fresh session.
+     */
     suspend fun extract(videoId: String): StreamResult = withContext(Dispatchers.IO) {
+        var lastError: Exception? = null
+        for (attempt in 1..EXTRACT_ATTEMPTS) {
+            try {
+                return@withContext extractOnce(videoId)
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "extract attempt $attempt/$EXTRACT_ATTEMPTS failed: $e")
+                if (attempt < EXTRACT_ATTEMPTS) delay(RETRY_DELAY_MS * attempt)
+            }
+        }
+        throw lastError ?: StreamExtractionException("unknown extraction failure")
+    }
+
+    private fun extractOnce(videoId: String): StreamResult {
         val client = buildClient()
 
         // Step 1: consented homepage visit -> visitorData + session cookies
@@ -107,6 +127,8 @@ class StreamRepository(context: Context) {
 
         val visitorData = Regex("\"VISITOR_DATA\"\\s*:\\s*\"([^\"]+)\"").find(homepage)?.groupValues?.get(1)
             ?: Regex("\"visitorData\"\\s*:\\s*\"([^\"]+)\"").find(homepage)?.groupValues?.get(1)
+
+        Log.i(TAG, "extract: homepage=${homepage.length} chars, cookies=${cookies.size}, visitor=${visitorData != null}")
 
         // Step 2: player API with the VISIONOS client
         val payload = JSONObject().apply {
@@ -150,13 +172,14 @@ class StreamRepository(context: Context) {
             response.body?.string() ?: ""
         }
 
-        parse(videoId, raw)
+        return parse(videoId, raw)
     }
 
     private fun parse(videoId: String, raw: String): StreamResult {
         val root = JSONObject(raw)
         val playability = root.optJSONObject("playabilityStatus")
         val status = playability?.optString("status") ?: "UNKNOWN"
+        Log.i(TAG, "parse: videoId=$videoId playability=$status")
         if (status != "OK") {
             val reason = playability?.optString("reason")
                 ?: root.optJSONObject("playabilityStatus")?.optString("messages")
@@ -249,6 +272,10 @@ class StreamRepository(context: Context) {
 
     companion object {
         private const val TAG = "StreamRepository"
+
+        /** Retries for the whole extraction (fresh session each time). */
+        private const val EXTRACT_ATTEMPTS = 3
+        private const val RETRY_DELAY_MS = 1_200L
 
         const val VISIONOS_USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 " +

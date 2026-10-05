@@ -105,7 +105,9 @@ class PlayerActivity : AppCompatActivity() {
         binding.playerStatus.text = getString(R.string.player_loading_stream)
 
         lifecycleScope.launch {
-            val data = runCatching { streamRepository.extract(videoId) }.getOrNull()
+            val result = runCatching { streamRepository.extract(videoId) }
+                .onFailure { e -> Log.e(TAG, "stream extraction failed: $e", e) }
+            val data = result.getOrNull()
             var started = false
 
             if (data != null) {
@@ -120,6 +122,12 @@ class PlayerActivity : AppCompatActivity() {
                 }.isSuccess
             } else {
                 Log.w(TAG, "stream extraction failed, falling back to IFrame player")
+                val reason = result.exceptionOrNull()?.message ?: "unknown error"
+                Toast.makeText(
+                    this@PlayerActivity,
+                    getString(R.string.player_stream_failed, reason),
+                    Toast.LENGTH_LONG
+                ).show()
             }
 
             binding.playerStatus.visibility = View.GONE
