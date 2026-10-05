@@ -29,6 +29,8 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
 import com.google.api.services.youtube.YouTubeScopes
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
@@ -38,6 +40,7 @@ class MainActivity : AppCompatActivity() {
         const val FEED_MAX_ITEMS = 40
         const val SEEDS_PER_SOURCE = 2   // subscription uploads used as seeds
         const val SEED_LIMIT = 5         // /next requests per feed load
+        const val API_RELATED_SEEDS = 2  // search.list (relatedToVideoId): 100 quota units per call
         const val MAX_PER_CHANNEL = 5
     }
 
@@ -211,16 +214,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Personalized part of the home feed - selection like YouTube does it:
+     * Personalized part of the home feed - selection like YouTube does it.
+     * The official home-feed endpoint is gone (`home=true` was removed), so
+     * the feed is rebuilt from four documented sources:
      *  1. uploads of subscribed channels (OAuth only, no API key);
-     *  2. YouTube watch-next recommendations seeded by BOTH signals at once:
-     *     the strongest local watch-history videos (what the user watched)
-     *     and the newest uploads of the subscriptions (what YouTube would
-     *     recommend around the subscriptions);
-     *  3. ranking: channels the user actually watches first (by accumulated
-     *     watch time), then subscription uploads interleaved with pure
+     *  2. `activities.list?channelId=…` (OAuth) — activity of the subscribed
+     *     channels (uploads/likes/live), the only accepted replacement of the
+     *     removed `mySubscriptions` filter, with `mine`/`home` fallbacks;
+     *  3. recommendations: innertube `/next` watch-next lists seeded by the
+     *     local watch history AND by the subscription uploads, plus official
+     *     `search.list` over keywords of the watched videos (the documented
+     *     `relatedToVideoId` parameter was removed server-side — verified
+     *     with HTTP 400, so the history-keyword search approach is used);
+     *  4. ranking: channels the user actually watches first (by accumulated
+     *     watch time), then subscription sources interleaved with pure
      *     recommendations so both stay visible, with a per-channel cap.
-     * Empty when signed out, in incognito and with nothing watched.
+     * Sources are fetched in parallel; empty in incognito mode.
      */
     private suspend fun personalizedParts(): List<Video> {
         if (Recommendations.isIncognito(this)) {
@@ -242,30 +251,64 @@ class MainActivity : AppCompatActivity() {
         val historySeeds = Recommendations.filterSeeds(this, WatchHistory.topIds(this, 3))
         val subscriptionSeeds = subscriptions.take(SEEDS_PER_SOURCE).map { it.id }
         val seeds = (historySeeds + subscriptionSeeds).distinct().take(SEED_LIMIT)
-        val recommendations = if (seeds.isNotEmpty()) {
-            feedRepository.recommendations(seeds)
-        } else emptyList()
+        val token = accessToken
 
-        val subscriptionIds = subscriptions.mapTo(HashSet()) { it.id }
+        // three sources, fetched in parallel:
+        //  1. innertube /next — YouTube's own watch-next lists (no key, no quota);
+        //  2. official Data API search.list?relatedToVideoId over the history
+        //     seeds — the documented replacement for the dead home feed;
+        //  3. official Data API activities.list?mySubscriptions=true (OAuth) —
+        //     uploads/likes/live activity of the subscribed channels.
+        val (innertubeRecs, apiRecs, activity) = coroutineScope {
+            val next = async {
+                if (seeds.isNotEmpty()) feedRepository.recommendations(seeds) else emptyList<Video>()
+            }
+            val related = async {
+                if (historySeeds.isEmpty()) emptyList<Video>()
+                else runCatching {
+                    youTubeRepository.getRelatedVideos(token, historySeeds.take(API_RELATED_SEEDS))
+                }.onFailure { Log.w(TAG, "api related failed: ${it.message}") }
+                    .getOrDefault(emptyList())
+            }
+            val subscriptionActivity = async {
+                if (token == null) emptyList<Video>()
+                else runCatching {
+                    youTubeRepository.getSubscriptionActivity(
+                        token,
+                        channelIds = subscriptions.mapNotNull { it.channelId }
+                    )
+                }.onFailure { Log.w(TAG, "api activity failed: ${it.message}") }
+                    .getOrDefault(emptyList())
+            }
+            Triple(next.await(), related.await(), subscriptionActivity.await())
+        }
+
+        val recommendations = (innertubeRecs + apiRecs).distinctBy { it.id }
+        // subscription signals: fresh uploads AND channel activity count as S
+        val subscriptionSourceIds = subscriptions.mapTo(HashSet()) { it.id }.apply {
+            addAll(activity.map { it.id })
+        }
+
         val parts = Recommendations.filter(
             this,
-            (subscriptions + recommendations).distinctBy { it.id }
+            (subscriptions + activity + recommendations).distinctBy { it.id }
         )
         val watchedChannels = WatchHistory.watchedChannels(this)
-        val ranked = rankFeed(parts, subscriptionIds, watchedChannels)
+        val ranked = rankFeed(parts, subscriptionSourceIds, watchedChannels)
         personalizedFeed = ranked.isNotEmpty()
         // composition signature of the top of the feed: W=watched channel,
-        // S=subscription upload, R=pure recommendation
+        // S=subscription source (upload or activity), R=pure recommendation
         val signature = ranked.take(12).joinToString("") { v ->
             when {
                 (watchedChannels[v.channelId] ?: 0L) > 0L -> "W"
-                v.id in subscriptionIds -> "S"
+                v.id in subscriptionSourceIds -> "S"
                 else -> "R"
             }
         }
         Log.i(
             TAG,
-            "personalized: subs=${subscriptions.size} recs=${recommendations.size} " +
+            "personalized: subs=${subscriptions.size} activity=${activity.size} " +
+                "recs=${innertubeRecs.size}+${apiRecs.size} " +
                 "seeds=${seeds.size} ranked=${ranked.size} top=$signature"
         )
         return ranked
