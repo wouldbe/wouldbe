@@ -10,7 +10,8 @@ import com.example.youtubeapp.data.model.Video
 import com.example.youtubeapp.databinding.ItemVideoBinding
 
 class VideoAdapter(
-    private val onVideoClick: (Video) -> Unit
+    private val onVideoClick: (Video) -> Unit,
+    private val onMenuClick: (Video, android.view.View) -> Unit = { _, _ -> }
 ) : ListAdapter<Video, VideoAdapter.VideoViewHolder>(VideoDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VideoViewHolder {
@@ -42,6 +43,10 @@ class VideoAdapter(
 
             binding.root.setOnClickListener {
                 onVideoClick(video)
+            }
+
+            binding.videoMenuButton.setOnClickListener {
+                onMenuClick(video, it)
             }
         }
     }

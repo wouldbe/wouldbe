@@ -19,6 +19,7 @@ import com.example.youtubeapp.data.model.SearchResult
 import com.example.youtubeapp.data.model.Video
 import com.example.youtubeapp.data.repository.AuthRepository
 import com.example.youtubeapp.data.repository.FeedRepository
+import com.example.youtubeapp.data.repository.Recommendations
 import com.example.youtubeapp.data.repository.WatchHistory
 import com.example.youtubeapp.data.repository.YouTubeRepository
 import com.example.youtubeapp.databinding.ActivityMainBinding
@@ -47,6 +48,13 @@ class MainActivity : AppCompatActivity() {
 
     /** True when the current list came from [FeedRepository] (innertube pagination). */
     private var usingFeedSource = false
+
+    /**
+     * Unfiltered copy of the current feed (search results or home feed).
+     * `videoAdapter` always shows [feedSnapshot] with hidden videos/channels
+     * removed, so the snapshot is needed to bring an undone video back.
+     */
+    private var feedSnapshot: List<Video> = emptyList()
 
     private val youTubeRepository by lazy {
         YouTubeRepository(this)
@@ -100,6 +108,7 @@ class MainActivity : AppCompatActivity() {
     private fun setupToolbar() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.title = getString(R.string.app_name)
+        updateSubtitle()
 
         binding.signInButton.setOnClickListener {
             signIn()
@@ -107,9 +116,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView() {
-        videoAdapter = VideoAdapter { video ->
-            openPlayer(video)
-        }
+        videoAdapter = VideoAdapter(
+            onVideoClick = { video -> openPlayer(video) },
+            onMenuClick = { video, anchor ->
+                VideoMenu.show(this, anchor, binding.recyclerView, video) {
+                    refreshFeed()
+                }
+            }
+        )
 
         val spanCount = if (resources.configuration.screenWidthDp > 600) 3 else 2
         binding.recyclerView.layoutManager = GridLayoutManager(this, spanCount)
@@ -187,8 +201,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUIForSignedInUser() {
         binding.signInContainer.visibility = View.GONE
-        val account = GoogleSignIn.getLastSignedInAccount(this)
-        supportActionBar?.subtitle = account?.displayName
+        updateSubtitle()
     }
 
     /**
@@ -198,6 +211,10 @@ class MainActivity : AppCompatActivity() {
      * Merged and deduplicated; empty when signed out and nothing watched.
      */
     private suspend fun personalizedParts(): List<Video> {
+        if (Recommendations.isIncognito(this)) {
+            Log.i(TAG, "personalized: skipped (incognito)")
+            return emptyList()
+        }
         Log.i(TAG, "personalized: start (token=${accessToken != null})")
 
         val subscriptions = accessToken?.let { token ->
@@ -206,18 +223,30 @@ class MainActivity : AppCompatActivity() {
                 .getOrDefault(emptyList())
         } ?: emptyList()
 
-        val seeds = WatchHistory.recentIds(this, 5)
+        // seeds are picked by accumulated watch time (strongest interest
+        // signal), hidden videos never seed the recommendations
+        val seeds = Recommendations.filterSeeds(this, WatchHistory.topIds(this, 5))
         val recommendations = if (seeds.isNotEmpty()) {
             feedRepository.recommendations(seeds)
         } else emptyList()
 
-        val parts = (subscriptions + recommendations).distinctBy { it.id }
+        val parts = Recommendations.filter(
+            this,
+            (subscriptions + recommendations).distinctBy { it.id }
+        )
         Log.i(
             TAG,
             "personalized: subs=${subscriptions.size} recs=${recommendations.size} " +
                 "seeds=${seeds.size} total=${parts.size}"
         )
         return parts
+    }
+
+    /** Applies hidden videos/channels to the feed and repopulates the list. */
+    private fun refreshFeed() {
+        val filtered = Recommendations.filter(this, feedSnapshot)
+        Log.i(TAG, "refreshFeed: ${feedSnapshot.size} -> ${filtered.size} videos")
+        videoAdapter.submitList(filtered)
     }
 
     /**
@@ -255,9 +284,12 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
                 }
-                videoAdapter.submitList(result.videos)
+                // hidden videos/channels never reach the home feed
+                feedSnapshot = result.videos
+                val visible = Recommendations.filter(this@MainActivity, result.videos)
+                videoAdapter.submitList(visible)
                 nextPageToken = result.nextPageToken
-                Log.i(TAG, "loadTrendingVideos: displayed ${result.videos.size} videos, pageToken=${nextPageToken != null}")
+                Log.i(TAG, "loadTrendingVideos: displayed ${visible.size} videos, pageToken=${nextPageToken != null}")
             } catch (e: Exception) {
                 Log.e(TAG, "loadTrendingVideos failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 Toast.makeText(this@MainActivity, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -281,9 +313,12 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     usingFeedSource = false
                 }
-                videoAdapter.submitList(result.videos)
+                feedSnapshot = result.videos
+                // «Не интересует» applies to search results as well
+                val visible = Recommendations.filter(this@MainActivity, result.videos)
+                videoAdapter.submitList(visible)
                 nextPageToken = result.nextPageToken
-                Log.i(TAG, "searchVideos: displayed ${result.videos.size} videos for '$query', pageToken=${nextPageToken != null}")
+                Log.i(TAG, "searchVideos: displayed ${visible.size} videos for '$query', pageToken=${nextPageToken != null}")
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, "Ошибка поиска: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {
@@ -309,7 +344,10 @@ class MainActivity : AppCompatActivity() {
                     else ->
                         youTubeRepository.getTrendingVideos(accessToken, pageToken = prevToken)
                 }
-                videoAdapter.submitList(videoAdapter.currentList + result.videos)
+                val merged = feedSnapshot + result.videos
+                feedSnapshot = merged
+                val visible = Recommendations.filter(this@MainActivity, merged)
+                videoAdapter.submitList(visible)
                 // stop paging when YouTube keeps returning the same continuation
                 nextPageToken = result.nextPageToken?.takeIf { it != prevToken }
                 Log.i(
@@ -343,6 +381,11 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_incognito)?.isChecked = Recommendations.isIncognito(this)
+        return super.onPrepareOptionsMenu(menu)
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_sign_in -> {
@@ -365,7 +408,40 @@ class MainActivity : AppCompatActivity() {
                 loadPlaylists()
                 true
             }
+            R.id.action_incognito -> {
+                toggleIncognito()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    /**
+     * Инкогнито (шаг 4 статьи Т—Ж): активность не сохраняется, поэтому
+     * история просмотра не пишется, а лента не персонализируется.
+     */
+    private fun toggleIncognito() {
+        val enabled = !Recommendations.isIncognito(this)
+        Recommendations.setIncognito(this, enabled)
+        invalidateOptionsMenu()
+        updateSubtitle()
+        Toast.makeText(
+            this,
+            getString(if (enabled) R.string.incognito_on else R.string.incognito_off),
+            Toast.LENGTH_LONG
+        ).show()
+        loadTrendingVideos()
+    }
+
+    /** Account name, prefixed with "Инкогнито" in incognito mode. */
+    private fun updateSubtitle() {
+        val name = GoogleSignIn.getLastSignedInAccount(this)?.displayName
+        supportActionBar?.subtitle = when {
+            Recommendations.isIncognito(this) ->
+                listOf(getString(R.string.incognito_title), name)
+                    .filterNotNull()
+                    .joinToString(" · ")
+            else -> name
         }
     }
 
@@ -379,7 +455,7 @@ class MainActivity : AppCompatActivity() {
             accessToken = null
             AuthRepository.clear()
             binding.signInContainer.visibility = View.VISIBLE
-            supportActionBar?.subtitle = null
+            updateSubtitle()
             loadTrendingVideos()
         }
     }

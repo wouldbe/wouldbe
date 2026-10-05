@@ -13,6 +13,21 @@
     <string name="proxy_fetch_error">Не удалось получить прокси: %1$s</string>
     <string name="proxy_fetch_empty">Прокси не найдены, повторите попытку позже</string>
     <string name="proxy_fetch_done">Найдено прокси: %1$d (с наименьшим пингом)</string>
+    <string name="rec_not_interested">Не интересует</string>
+    <string name="rec_hide_channel">Не рекомендовать видео с этого канала</string>
+    <string name="rec_video_hidden">Видео скрыто из рекомендаций</string>
+    <string name="rec_undo">Отменить</string>
+    <string name="rec_channel_hidden">Канал «%1$s» больше не рекомендуется</string>
+    <string name="incognito_action">Режим инкогнито</string>
+    <string name="incognito_title">Инкогнито</string>
+    <string name="incognito_on">Инкогнито включено: история не сохраняется, лента не персонализируется</string>
+    <string name="incognito_off">Инкогнито выключено</string>
+    <string name="settings_recommendations">Рекомендации</string>
+    <string name="rec_stats">История просмотров: %1$d видео, скрыто: %2$d видео и %3$d каналов</string>
+    <string name="clear_history">Очистить историю просмотров</string>
+    <string name="history_cleared">История просмотров очищена — рекомендации начнут учиться заново</string>
+    <string name="reset_hidden">Вернуть скрытые видео и каналы</string>
+    <string name="hidden_reset">Скрытые видео и каналы возвращены в рекомендации</string>
     <string name="default_web_client_id">864285384604-60cf9lv1rlp2b0eup14oce34tblilsak.apps.googleusercontent.com</string>
     <string name="youtube_api_key" translatable="false">AIzaSyDuwzeSfQfl16uPcI1Qb93sQQGJUcBVfw4</string>
 </resources>

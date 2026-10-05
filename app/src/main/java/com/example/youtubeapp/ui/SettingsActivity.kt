@@ -14,6 +14,8 @@ import com.example.youtubeapp.data.model.ProxyConfig
 import com.example.youtubeapp.data.model.ProxyType
 import com.example.youtubeapp.data.model.VideoQuality
 import com.example.youtubeapp.data.repository.ProxyAdapter
+import com.example.youtubeapp.data.repository.Recommendations
+import com.example.youtubeapp.data.repository.WatchHistory
 import com.example.youtubeapp.databinding.ActivitySettingsBinding
 import kotlinx.coroutines.launch
 
@@ -52,6 +54,7 @@ class SettingsActivity : AppCompatActivity() {
         setupSubtitleSettings()
         setupDownloadSettings()
         setupProxySettings()
+        setupRecommendations()
         setupThemeSettings()
     }
 
@@ -225,6 +228,36 @@ class SettingsActivity : AppCompatActivity() {
             binding.proxyTypeSpinner.setSelection(types.indexOf(ProxyType.HTTP.name))
         }
         Log.i(TAG, "applyProxyCandidate: ${candidate.host}:${candidate.port} ping=${candidate.pingMs}ms")
+    }
+
+    /**
+     * History + hidden videos/channels (Т—Ж, шаги 3, 6, 7: «не интересует»,
+     * чистка истории и «начать с чистого листа»).
+     */
+    private fun setupRecommendations() {
+        refreshRecommendationStats()
+
+        binding.clearHistoryButton.setOnClickListener {
+            WatchHistory.clear(this)
+            refreshRecommendationStats()
+            Toast.makeText(this, R.string.history_cleared, Toast.LENGTH_SHORT).show()
+        }
+
+        binding.resetHiddenButton.setOnClickListener {
+            Recommendations.resetHidden(this)
+            refreshRecommendationStats()
+            Toast.makeText(this, R.string.hidden_reset, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun refreshRecommendationStats() {
+        val (videos, channels) = Recommendations.hiddenCounts(this)
+        binding.recStatsText.text = getString(
+            R.string.rec_stats,
+            WatchHistory.count(this),
+            videos,
+            channels
+        )
     }
 
     private fun setupThemeSettings() {

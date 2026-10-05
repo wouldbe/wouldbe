@@ -25,6 +25,7 @@ import com.example.youtubeapp.data.model.Video
 import com.example.youtubeapp.data.model.VideoQuality
 import com.example.youtubeapp.data.repository.AuthRepository
 import com.example.youtubeapp.data.repository.FeedRepository
+import com.example.youtubeapp.data.repository.Recommendations
 import com.example.youtubeapp.data.repository.StreamRepository
 import com.example.youtubeapp.data.repository.WatchHistory
 import com.example.youtubeapp.data.repository.YouTubeRepository
@@ -47,6 +48,11 @@ class PlayerActivity : AppCompatActivity() {
     private var exoPlayer: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
     private var relatedLoaded: Boolean = false
+    private var relatedItems: List<Video> = emptyList()
+
+    /** Watch time accounting: position of the last flush + unflushed delta. */
+    private var lastPositionMs: Long = 0L
+    private var pendingWatchMs: Long = 0L
 
     private val youTubeRepository by lazy {
         YouTubeRepository(this)
@@ -83,6 +89,9 @@ class PlayerActivity : AppCompatActivity() {
         }
 
         // seed for the personalized recommendation feed on the home screen
+        // (skipped in incognito mode inside WatchHistory.add)
+        lastPositionMs = 0L
+        pendingWatchMs = 0L
         WatchHistory.add(this, videoId)
 
         lifecycleScope.launch {
@@ -440,15 +449,18 @@ class PlayerActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val items = feedRepository.related(videoId)
+                relatedItems = items
                 Log.i(TAG, "related: ${items.size} items for $videoId")
-                renderRelated(items)
+                renderRelated()
             } catch (e: Exception) {
                 Log.e(TAG, "related load failed: ${e.message}", e)
             }
         }
     }
 
-    private fun renderRelated(items: List<Video>) {
+    /** Renders the related list with hidden videos/channels filtered out. */
+    private fun renderRelated() {
+        val items = Recommendations.filter(this, relatedItems)
         Log.i(TAG, "renderRelated: begin, items=${items.size}")
         binding.relatedContainer.removeAllViews()
         if (items.isEmpty()) {
@@ -489,6 +501,12 @@ class PlayerActivity : AppCompatActivity() {
                     }
                 )
                 finish()
+            }
+            row.setOnLongClickListener {
+                VideoMenu.show(this@PlayerActivity, row, binding.relatedContainer, item) {
+                    renderRelated()
+                }
+                true
             }
             binding.relatedContainer.addView(row)
         }
@@ -594,6 +612,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        flushWatchTime()
         val playing = exoPlayer?.isPlaying == true
         if (playing) {
             resumeAfterResumePending = true
@@ -602,8 +621,29 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        flushWatchTime()
         releasePlayer()
         super.onDestroy()
+    }
+
+    /**
+     * Watch time is one of the strongest recommendation signals (Т—Ж, шаг 1):
+     * the played position delta is pushed into [WatchHistory] whenever the
+     * player is left, so seeds are ranked by real watch time later.
+     */
+    private fun flushWatchTime() {
+        val player = exoPlayer
+        if (player != null) {
+            val position = player.currentPosition
+            val delta = position - lastPositionMs
+            if (delta > 0) pendingWatchMs += delta
+            lastPositionMs = position
+        }
+        if (pendingWatchMs > 0) {
+            WatchHistory.add(this, videoId, pendingWatchMs)
+            Log.i(TAG, "watch time flushed: ${pendingWatchMs}ms for $videoId")
+            pendingWatchMs = 0
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {

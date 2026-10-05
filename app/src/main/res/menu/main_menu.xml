@@ -29,6 +29,12 @@
         app:showAsAction="never" />
 
     <item
+        android:id="@+id/action_incognito"
+        android:title="@string/incognito_action"
+        android:checkable="true"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_settings"
         android:title="Настройки"
         app:showAsAction="never" />
