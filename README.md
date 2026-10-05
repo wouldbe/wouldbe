@@ -18,6 +18,25 @@
 - ✅ Адаптивный дизайн для телефонов и планшетов
 - ✅ Тёмная тема
 
+## Иконка и обложки
+
+Библиотека изображений в [`art/`](art/) — видоизменённый логотип YouTube: красный градиентный
+бейдж со срезанным верхним углом (янтарная «закладка») и белым play-треугольником на тёмном
+фоне с мягким красным свечением.
+
+![Обложка](art/cover/cover-1600x900.png)
+
+| Каталог | Файлы |
+|---|---|
+| `art/logo/` | `icon-512.png`, `icon-192.png` — квадратные иконки для сторов; `mark-512-transparent.png` — знак на прозрачном фоне; `logo-horizontal-1024x320.png` — горизонтальный логотип |
+| `art/cover/` | `feature-1024x500.png` — feature graphic Google Play; `cover-1600x900.png` — обложка 16:9; `github-1584x396.png` — шапка репозитория |
+| `art/source/` | `icon.svg`, `logo-horizontal.svg` — SVG-исходники для правки |
+| `art/make_art.ps1` | генератор всех PNG (GDI+, без внешних зависимостей): `powershell -ExecutionPolicy Bypass -File art\make_art.ps1` |
+
+Иконка самого приложения — векторная: адаптивная для API 26+ (`drawable/ic_launcher_foreground.xml`
++ `drawable/ic_launcher_background.xml`, `mipmap-anydpi-v26`), для API < 26 — цельный вектор
+`mipmap-*/ic_launcher*.xml` (все плотности), масштабируется без потерь.
+
 ## Как это работает
 
 ### Воспроизведение

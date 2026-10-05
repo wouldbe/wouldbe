@@ -1,13 +1,63 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Legacy launcher icon (API < 26): full-bleed dark background, glow and
+     the modified YouTube badge - red gradient rounded rect with a chamfered
+     top-right corner, amber "fold" accent and a white play triangle. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="48dp"
     android:height="48dp"
-    android:viewportWidth="48"
-    android:viewportHeight="48">
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- dark background -->
+    <path android:pathData="M0,0 h108 v108 h-108 z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54" android:startY="0"
+                android:endX="54" android:endY="108"
+                android:startColor="#FF15151C"
+                android:endColor="#FF08080C" />
+        </aapt:attr>
+    </path>
+    <!-- red glow -->
+    <path android:pathData="M54,-18 A72,72 0 1 0 54,126 A72,72 0 1 0 54,-18 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="radial"
+                android:centerX="54" android:centerY="54"
+                android:gradientRadius="72"
+                android:startColor="#59FF2E26"
+                android:endColor="#00FF2E26" />
+        </aapt:attr>
+    </path>
+    <!-- badge with chamfered top-right corner -->
+    <path android:pathData="M27,30 L79,30 L94,45 L94,65 A13,13 0 0 1 81,78 L27,78 A13,13 0 0 1 14,65 L14,43 A13,13 0 0 1 27,30 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="14" android:startY="30"
+                android:endX="94" android:endY="78"
+                android:startColor="#FFFF4436"
+                android:endColor="#FFC1001B" />
+        </aapt:attr>
+    </path>
+    <!-- folded corner accent -->
+    <path android:pathData="M79,30 L94,45 L79,45 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="79" android:startY="30"
+                android:endX="94" android:endY="45"
+                android:startColor="#FFFFB04A"
+                android:endColor="#FFFF8A1E" />
+        </aapt:attr>
+    </path>
+    <!-- white play triangle, rounded corners via round-join stroke -->
     <path
-        android:fillColor="#FF0000"
-        android:pathData="M4,4 h40 v40 h-40 z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M18,14 L18,34 L34,24 z" />
+        android:pathData="M40,41 L40,67 L66,54 Z"
+        android:fillColor="#FFFFFFFF"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
 </vector>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher foreground (adaptive icon safe zone: content inside 24..84):
+     modified YouTube badge - red gradient rounded rect with a chamfered
+     top-right corner, amber "fold" accent and a white play triangle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- badge with chamfered top-right corner -->
+    <path android:pathData="M33.75,36 L72.75,36 L84,47.25 L84,62.25 A9.75,9.75 0 0 1 74.25,72 L33.75,72 A9.75,9.75 0 0 1 24,62.25 L24,45.75 A9.75,9.75 0 0 1 33.75,36 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="24" android:startY="36"
+                android:endX="84" android:endY="72"
+                android:startColor="#FFFF4436"
+                android:endColor="#FFC1001B" />
+        </aapt:attr>
+    </path>
+    <!-- folded corner accent -->
+    <path android:pathData="M72.75,36 L84,47.25 L72.75,47.25 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="72.75" android:startY="36"
+                android:endX="84" android:endY="47.25"
+                android:startColor="#FFFFB04A"
+                android:endColor="#FFFF8A1E" />
+        </aapt:attr>
+    </path>
+    <!-- white play triangle, rounded corners via round-join stroke -->
+    <path
+        android:pathData="M43.5,44.25 L43.5,63.75 L63,54 Z"
+        android:fillColor="#FFFFFFFF"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
+</vector>

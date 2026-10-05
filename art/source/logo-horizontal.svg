@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- YouTubeApp horizontal logo source (1024x320), dark variant. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="320" viewBox="0 0 1024 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#15151C"/>
+      <stop offset="1" stop-color="#08080C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FF2E26" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FF2E26" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF4436"/>
+      <stop offset="1" stop-color="#C1001B"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB04A"/>
+      <stop offset="1" stop-color="#FF8A1E"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="320" fill="url(#bg)"/>
+  <circle cx="200" cy="160" r="220" fill="url(#glow)"/>
+
+  <path d="M97.4,91 L246.9,91 L290,134.1 L290,191.6
+           A37.4,37.4 0 0 1 252.6,229 L97.4,229
+           A37.4,37.4 0 0 1 60,191.6 L60,128.4
+           A37.4,37.4 0 0 1 97.4,91 Z"
+        fill="url(#badge)"/>
+  <path d="M246.9,91 L290,134.1 L246.9,134.1 Z" fill="url(#fold)"/>
+  <path d="M134.8,122.6 L134.8,197.4 L209.5,160 Z"
+        fill="#FFFFFF" stroke="#FFFFFF" stroke-width="11.5"
+        stroke-linejoin="round" stroke-linecap="round"/>
+
+  <text x="340" y="175" font-family="Segoe UI, Arial, sans-serif" font-size="76"
+        font-weight="bold" fill="#FFFFFF">YouTubeApp</text>
+  <text x="342" y="216" font-family="Segoe UI, Arial, sans-serif" font-size="24"
+        fill="#B0B2BC">Native Android player</text>
+</svg>

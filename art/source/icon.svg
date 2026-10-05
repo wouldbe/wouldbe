@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- YouTubeApp icon source (512x512). Modified YouTube look:
+     red gradient badge with a folded amber corner + white play triangle.
+     Regenerate PNGs with ../make_art.ps1 -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#15151C"/>
+      <stop offset="1" stop-color="#08080C"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FF2E26" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FF2E26" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF4436"/>
+      <stop offset="1" stop-color="#C1001B"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFB04A"/>
+      <stop offset="1" stop-color="#FF8A1E"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="330" fill="url(#glow)"/>
+
+  <!-- badge: rounded rect with a chamfered top-right corner -->
+  <path d="M128.1,142.5 L374.4,142.5 L445.5,213.6 L445.5,308.3
+           A61.6,61.6 0 0 1 383.9,369.9 L128.1,369.9
+           A61.6,61.6 0 0 1 66.5,308.3 L66.5,204.1
+           A61.6,61.6 0 0 1 128.1,142.5 Z"
+        fill="url(#badge)"/>
+
+  <!-- folded corner accent -->
+  <path d="M374.4,142.5 L445.5,213.6 L374.4,213.6 Z" fill="url(#fold)"/>
+
+  <!-- white play triangle with rounded corners -->
+  <path d="M189.7,194.6 L189.7,317.8 L312.9,256.2 Z"
+        fill="#FFFFFF" stroke="#FFFFFF" stroke-width="18.9"
+        stroke-linejoin="round" stroke-linecap="round"/>
+</svg>
