@@ -10,9 +10,7 @@ class SettingsRepository(context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var videoQuality: VideoQuality
-        get() = VideoQuality.valueOf(
-            prefs.getString(KEY_VIDEO_QUALITY, VideoQuality.HD.name) ?: VideoQuality.HD.name
-        )
+        get() = VideoQuality.fromStored(prefs.getString(KEY_VIDEO_QUALITY, null))
         set(value) = prefs.edit().putString(KEY_VIDEO_QUALITY, value.name).apply()
 
     var autoPlay: Boolean
@@ -36,9 +34,7 @@ class SettingsRepository(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_DARK_THEME, value).apply()
 
     var maxDownloadQuality: VideoQuality
-        get() = VideoQuality.valueOf(
-            prefs.getString(KEY_MAX_DOWNLOAD_QUALITY, VideoQuality.HD.name) ?: VideoQuality.HD.name
-        )
+        get() = VideoQuality.fromStored(prefs.getString(KEY_MAX_DOWNLOAD_QUALITY, null))
         set(value) = prefs.edit().putString(KEY_MAX_DOWNLOAD_QUALITY, value.name).apply()
 
     var bufferSize: Int

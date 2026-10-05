@@ -5,7 +5,7 @@ data class DownloadTask(
     val videoId: String,
     val videoTitle: String,
     val thumbnailUrl: String,
-    val quality: VideoQuality = VideoQuality.HD,
+    val quality: VideoQuality = VideoQuality.DEFAULT,
     val status: DownloadStatus = DownloadStatus.PENDING,
     val progress: Int = 0,
     val filePath: String = "",
@@ -15,28 +15,43 @@ data class DownloadTask(
 )
 
 /**
- * Quality preset. Selection of a rendition is bitrate-driven: [targetBitrate]
- * is the bitrate (bits per second) the picker aims at, based on the bitrate
- * ladder of the concrete video rather than on its resolution alone.
+ * Quality preset selected by resolution like in the YouTube quality menu
+ * (240p, 360p, 480p, ...).
+ *
+ * [height] is the target rendition height: the picker takes the tallest
+ * format/variant not exceeding it. [targetBitrate] is the fallback bandwidth
+ * goal for sources that expose no RESOLUTION data (HLS with BANDWIDTH only).
  */
-enum class VideoQuality(val targetBitrate: Int) {
-    LOW(600_000),        // ~144p-360p
-    MEDIUM(1_500_000),   // ~480p
-    HD(4_000_000),       // ~720p
-    FULL_HD(8_000_000),  // ~1080p
-    FOUR_K(24_000_000);  // ~2160p
+enum class VideoQuality(val height: Int, val targetBitrate: Int) {
+    P240(240, 400_000),
+    P360(360, 800_000),
+    P480(480, 1_400_000),
+    P720(720, 3_000_000),
+    P1080(1080, 6_000_000),
+    P1440(1440, 12_000_000),
+    P2160(2160, 24_000_000);
 
-    /** Label with the target bitrate, e.g. "HD (4 Мбит/с)". */
+    /** Menu label in YouTube style, e.g. "360p". */
     val label: String
-        get() {
-            val mbps = targetBitrate / 1_000_000.0
-            val text = if (mbps >= 10.0) {
-                mbps.toLong().toString()
-            } else {
-                String.format(java.util.Locale.US, "%.1f", mbps).removeSuffix(".0")
-            }
-            return "$name ($text Мбит/с)"
+        get() = "${height}p"
+
+    companion object {
+        /** Playback/download default when nothing is stored yet. */
+        val DEFAULT: VideoQuality = P1080
+
+        /**
+         * Reads a stored preset, migrating the legacy bitrate-based names
+         * (LOW/MEDIUM/HD/FULL_HD/FOUR_K) saved by earlier app versions.
+         */
+        fun fromStored(name: String?): VideoQuality = when (name) {
+            "LOW" -> P360
+            "MEDIUM" -> P480
+            "HD" -> P720
+            "FULL_HD" -> P1080
+            "FOUR_K" -> P2160
+            else -> values().firstOrNull { it.name == name } ?: DEFAULT
         }
+    }
 }
 
 enum class DownloadStatus {

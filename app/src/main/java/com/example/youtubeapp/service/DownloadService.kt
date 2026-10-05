@@ -69,8 +69,8 @@ class DownloadService : Service() {
         val videoId = intent?.getStringExtra(EXTRA_VIDEO_ID) ?: return START_NOT_STICKY
         val videoTitle = intent?.getStringExtra(EXTRA_VIDEO_TITLE) ?: "Video"
         val thumbnailUrl = intent?.getStringExtra(EXTRA_THUMBNAIL_URL) ?: ""
-        val qualityStr = intent?.getStringExtra(EXTRA_QUALITY) ?: VideoQuality.HD.name
-        val quality = VideoQuality.valueOf(qualityStr)
+        val qualityStr = intent?.getStringExtra(EXTRA_QUALITY)
+        val quality = VideoQuality.fromStored(qualityStr)
 
         val downloadTask = DownloadTask(
             id = UUID.randomUUID().toString(),
@@ -162,10 +162,8 @@ class DownloadService : Service() {
      * segments into one fMP4 file.
      */
     private fun downloadHls(masterUrl: String, outFile: File, task: DownloadTask) {
-        val targetBitrate = task.quality.targetBitrate
-
         val master = fetchText(masterUrl)
-        val variantUrl = pickVariant(master, masterUrl, targetBitrate)
+        val variantUrl = pickVariant(master, masterUrl, task.quality)
             ?: throw IOException("no HLS variant")
 
         val playlist = fetchText(variantUrl)
@@ -233,10 +231,12 @@ class DownloadService : Service() {
     }
 
     /**
-     * Picks the HLS rendition whose BANDWIDTH is closest to [targetBitrate]
-     * without exceeding it (falls back to the smallest rendition otherwise).
+     * Picks the HLS rendition for the selected resolution (like the YouTube
+     * quality menu): the tallest variant not exceeding the preset height, or
+     * the smallest one when the ladder starts higher. Sources without a
+     * RESOLUTION attribute fall back to BANDWIDTH vs [VideoQuality.targetBitrate].
      */
-    private fun pickVariant(master: String, masterUrl: String, targetBitrate: Int): String? {
+    private fun pickVariant(master: String, masterUrl: String, quality: VideoQuality): String? {
         val lines = master.lines()
         // bandwidth (bps), height, uri
         val candidates = mutableListOf<Triple<Int, Int, String>>()
@@ -258,9 +258,22 @@ class DownloadService : Service() {
         }
         if (candidates.isEmpty()) return null
 
-        val chosen = candidates.filter { it.first in 1..targetBitrate }.maxByOrNull { it.first }
-            ?: candidates.minByOrNull { it.first }!!
-        Log.i(TAG, "HLS variant: ${chosen.first} bps (target $targetBitrate bps, ${chosen.second}p)")
+        val withHeight = candidates.filter { it.second > 0 }
+        val chosen = when {
+            // resolution first: tallest rendition not above the selected one
+            withHeight.isNotEmpty() ->
+                withHeight.filter { it.second <= quality.height }.maxByOrNull { it.second }
+                    ?: withHeight.minByOrNull { it.second }!!
+            // no RESOLUTION data: bandwidth fallback
+            else ->
+                candidates.filter { it.first in 1..quality.targetBitrate }.maxByOrNull { it.first }
+                    ?: candidates.minByOrNull { it.first }!!
+        }
+        Log.i(
+            TAG,
+            "HLS variant: ${chosen.second}p ${chosen.first} bps " +
+                "(target ${quality.label} / ${quality.targetBitrate} bps)"
+        )
         val uri = chosen.third
         return if (uri.startsWith("http")) uri else java.net.URI(masterUrl).resolve(uri).toString()
     }

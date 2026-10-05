@@ -42,7 +42,7 @@ class PlayerActivity : AppCompatActivity() {
     private var channelTitle: String = ""
     private var accessToken: String? = null
     private var captionTracks: List<CaptionTrack> = emptyList()
-    private var currentQuality: VideoQuality = VideoQuality.HD
+    private var currentQuality: VideoQuality = VideoQuality.DEFAULT
     private var streamResult: StreamRepository.StreamResult? = null
 
     private var exoPlayer: ExoPlayer? = null
@@ -220,26 +220,19 @@ class PlayerActivity : AppCompatActivity() {
         return builder.build()
     }
 
-    /** Fallback ladder when the video exposes no bitrate information. */
-    private fun defaultQualityHeight(quality: VideoQuality): Int = when (quality) {
-        VideoQuality.LOW -> 360
-        VideoQuality.MEDIUM -> 480
-        VideoQuality.HD -> 720
-        VideoQuality.FULL_HD -> 1080
-        VideoQuality.FOUR_K -> 2160
-    }
-
     /**
-     * Bitrate-driven quality constraint: the rendition of this video with the
-     * bitrate closest to the target determines both the height cap and the
-     * bandwidth cap (with headroom for HLS rendition variance).
+     * Resolution-driven quality constraint (like the YouTube quality menu):
+     * the selected height is the cap, the tallest rendition of this video not
+     * exceeding it is picked, and its bitrate (with headroom) caps the
+     * bandwidth.
      */
     private fun applyQualityConstraint(
         selector: DefaultTrackSelector,
         data: StreamRepository.StreamResult?
     ) {
-        val pick = data?.formatByBitrate(currentQuality.targetBitrate)
-        val maxHeight = pick?.height ?: defaultQualityHeight(currentQuality)
+        val targetHeight = currentQuality.height
+        val pick = data?.formatByHeight(targetHeight)
+        val maxHeight = pick?.height ?: targetHeight
         val maxBitrate = pick?.bitrate?.let { it + it / 2 }
 
         val params = selector.buildUponParameters().setMaxVideoSize(3840, maxHeight)
@@ -247,7 +240,7 @@ class PlayerActivity : AppCompatActivity() {
         selector.setParameters(params)
         Log.i(
             TAG,
-            "quality=${currentQuality.name} target=${currentQuality.targetBitrate}bps " +
+            "quality=${currentQuality.label} target=${targetHeight}p " +
                 "pick=${pick?.let { "${it.height}p@${it.bitrate}bps" } ?: "n/a"} " +
                 "constraint=${maxHeight}p/${maxBitrate ?: "unset"}bps"
         )
