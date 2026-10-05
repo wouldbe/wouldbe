@@ -36,6 +36,9 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val TAG = "MainActivity"
         const val FEED_MAX_ITEMS = 40
+        const val SEEDS_PER_SOURCE = 2   // subscription uploads used as seeds
+        const val SEED_LIMIT = 5         // /next requests per feed load
+        const val MAX_PER_CHANNEL = 5
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -48,6 +51,9 @@ class MainActivity : AppCompatActivity() {
 
     /** True when the current list came from [FeedRepository] (innertube pagination). */
     private var usingFeedSource = false
+
+    /** True when the last home load had a personalized (subs + watch) part. */
+    private var personalizedFeed = false
 
     /**
      * Unfiltered copy of the current feed (search results or home feed).
@@ -205,14 +211,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Personalized part of the home feed:
+     * Personalized part of the home feed - selection like YouTube does it:
      *  1. uploads of subscribed channels (OAuth only, no API key);
-     *  2. YouTube watch-next recommendations seeded by local watch history.
-     * Merged and deduplicated; empty when signed out and nothing watched.
+     *  2. YouTube watch-next recommendations seeded by BOTH signals at once:
+     *     the strongest local watch-history videos (what the user watched)
+     *     and the newest uploads of the subscriptions (what YouTube would
+     *     recommend around the subscriptions);
+     *  3. ranking: channels the user actually watches first (by accumulated
+     *     watch time), then subscription uploads interleaved with pure
+     *     recommendations so both stay visible, with a per-channel cap.
+     * Empty when signed out, in incognito and with nothing watched.
      */
     private suspend fun personalizedParts(): List<Video> {
         if (Recommendations.isIncognito(this)) {
             Log.i(TAG, "personalized: skipped (incognito)")
+            personalizedFeed = false
             return emptyList()
         }
         Log.i(TAG, "personalized: start (token=${accessToken != null})")
@@ -223,23 +236,94 @@ class MainActivity : AppCompatActivity() {
                 .getOrDefault(emptyList())
         } ?: emptyList()
 
-        // seeds are picked by accumulated watch time (strongest interest
-        // signal), hidden videos never seed the recommendations
-        val seeds = Recommendations.filterSeeds(this, WatchHistory.topIds(this, 5))
+        // history seeds: picked by accumulated watch time (strongest interest
+        // signal); subscription seeds: recommendations "around" the channels
+        // the user follows. Hidden videos never seed the recommendations.
+        val historySeeds = Recommendations.filterSeeds(this, WatchHistory.topIds(this, 3))
+        val subscriptionSeeds = subscriptions.take(SEEDS_PER_SOURCE).map { it.id }
+        val seeds = (historySeeds + subscriptionSeeds).distinct().take(SEED_LIMIT)
         val recommendations = if (seeds.isNotEmpty()) {
             feedRepository.recommendations(seeds)
         } else emptyList()
 
+        val subscriptionIds = subscriptions.mapTo(HashSet()) { it.id }
         val parts = Recommendations.filter(
             this,
             (subscriptions + recommendations).distinctBy { it.id }
         )
+        val watchedChannels = WatchHistory.watchedChannels(this)
+        val ranked = rankFeed(parts, subscriptionIds, watchedChannels)
+        personalizedFeed = ranked.isNotEmpty()
+        // composition signature of the top of the feed: W=watched channel,
+        // S=subscription upload, R=pure recommendation
+        val signature = ranked.take(12).joinToString("") { v ->
+            when {
+                (watchedChannels[v.channelId] ?: 0L) > 0L -> "W"
+                v.id in subscriptionIds -> "S"
+                else -> "R"
+            }
+        }
         Log.i(
             TAG,
             "personalized: subs=${subscriptions.size} recs=${recommendations.size} " +
-                "seeds=${seeds.size} total=${parts.size}"
+                "seeds=${seeds.size} ranked=${ranked.size} top=$signature"
         )
-        return parts
+        return ranked
+    }
+
+    /**
+     * Feed ranking in the YouTube spirit:
+     *  - videos of channels the user watches go first (by watch time);
+     *  - the rest - subscription uploads interleaved round-robin with
+     *    watch-based recommendations, so neither signal crowds the other out;
+     *  - at most [MAX_PER_CHANNEL] videos of one channel (diversity).
+     */
+    private fun rankFeed(
+        videos: List<Video>,
+        subscriptionIds: Set<String>,
+        watchedChannels: Map<String, Long>
+    ): List<Video> {
+        val watchedGroup = ArrayList<Video>()
+        val subscriptionsGroup = ArrayList<Video>()
+        val recommendationsGroup = ArrayList<Video>()
+        for (video in videos) {
+            when {
+                (watchedChannels[video.channelId] ?: 0L) > 0L -> watchedGroup.add(video)
+                video.id in subscriptionIds -> subscriptionsGroup.add(video)
+                else -> recommendationsGroup.add(video)
+            }
+        }
+        watchedGroup.sortByDescending { watchedChannels[it.channelId] ?: 0L }
+        val mixed = interleave(subscriptionsGroup, recommendationsGroup)
+        Log.i(
+            TAG, "rankFeed: watchedChannels=${watchedGroup.size} " +
+                "subscriptions=${subscriptionsGroup.size} " +
+                "recommendations=${recommendationsGroup.size} -> ${mixed.size} interleaved"
+        )
+        return capPerChannel(watchedGroup + mixed)
+    }
+
+    /** Round-robin merge: a[0], b[0], a[1], b[1]... */
+    private fun interleave(a: List<Video>, b: List<Video>): List<Video> {
+        val out = ArrayList<Video>(a.size + b.size)
+        var i = 0
+        while (i < a.size || i < b.size) {
+            if (i < a.size) out.add(a[i])
+            if (i < b.size) out.add(b[i])
+            i++
+        }
+        return out
+    }
+
+    /** Keeps order, dropping videos beyond [max] from the same channel. */
+    private fun capPerChannel(videos: List<Video>, max: Int = MAX_PER_CHANNEL): List<Video> {
+        val counts = HashMap<String, Int>()
+        return videos.filter { video ->
+            val n = counts[video.channelId] ?: 0
+            if (n >= max) return@filter false
+            counts[video.channelId] = n + 1
+            true
+        }
     }
 
     /** Applies hidden videos/channels to the feed and repopulates the list. */
@@ -269,6 +353,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 var result = youTubeRepository.getTrendingVideos(accessToken)
+                var personalCount = 0
                 Log.i(TAG, "loadTrendingVideos: got ${result.videos.size} videos (Data API)")
                 if (result.videos.isEmpty()) {
                     result = loadPersonalizedFeed()
@@ -277,6 +362,7 @@ class MainActivity : AppCompatActivity() {
                     usingFeedSource = false
                     // personalization on top of the official (non-personal) feed
                     val personal = personalizedParts()
+                    personalCount = personal.size
                     if (personal.isNotEmpty()) {
                         result = SearchResult(
                             (personal + result.videos).distinctBy { it.id }.take(FEED_MAX_ITEMS),
@@ -289,7 +375,10 @@ class MainActivity : AppCompatActivity() {
                 val visible = Recommendations.filter(this@MainActivity, result.videos)
                 videoAdapter.submitList(visible)
                 nextPageToken = result.nextPageToken
-                Log.i(TAG, "loadTrendingVideos: displayed ${visible.size} videos, pageToken=${nextPageToken != null}")
+                Log.i(
+                    TAG, "loadTrendingVideos: displayed ${visible.size} videos " +
+                        "(personal=$personalCount), pageToken=${nextPageToken != null}"
+                )
             } catch (e: Exception) {
                 Log.e(TAG, "loadTrendingVideos failed: ${e.javaClass.simpleName}: ${e.message}", e)
                 Toast.makeText(this@MainActivity, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -344,7 +433,20 @@ class MainActivity : AppCompatActivity() {
                     else ->
                         youTubeRepository.getTrendingVideos(accessToken, pageToken = prevToken)
                 }
-                val merged = feedSnapshot + result.videos
+                // a personalized home feed keeps growing from watch-based
+                // recommendations seeded by the tail of the current list
+                val expanded =
+                    if (personalizedFeed && currentQuery.isBlank() && !usingFeedSource) {
+                        val tail = Recommendations.filterSeeds(
+                            this@MainActivity, feedSnapshot.takeLast(2).map { it.id }
+                        )
+                        if (tail.isNotEmpty()) {
+                            runCatching { feedRepository.recommendations(tail) }
+                                .onFailure { Log.w(TAG, "feed expansion failed: ${it.message}") }
+                                .getOrDefault(emptyList())
+                        } else emptyList()
+                    } else emptyList()
+                val merged = (feedSnapshot + expanded + result.videos).distinctBy { it.id }
                 feedSnapshot = merged
                 val visible = Recommendations.filter(this@MainActivity, merged)
                 videoAdapter.submitList(visible)
@@ -352,7 +454,8 @@ class MainActivity : AppCompatActivity() {
                 nextPageToken = result.nextPageToken?.takeIf { it != prevToken }
                 Log.i(
                     TAG,
-                    "loadMore: +${result.videos.size} videos, total=${videoAdapter.itemCount}, pageToken=${nextPageToken != null}"
+                    "loadMore: +${result.videos.size} videos (+${expanded.size} related), " +
+                        "total=${videoAdapter.itemCount}, pageToken=${nextPageToken != null}"
                 )
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, "Ошибка загрузки: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -368,6 +471,7 @@ class MainActivity : AppCompatActivity() {
             putExtra(PlayerActivity.EXTRA_VIDEO_ID, video.id)
             putExtra(PlayerActivity.EXTRA_VIDEO_TITLE, video.title)
             putExtra(PlayerActivity.EXTRA_CHANNEL_TITLE, video.channelTitle)
+            putExtra(PlayerActivity.EXTRA_CHANNEL_ID, video.channelId)
         }
         startActivity(intent)
     }

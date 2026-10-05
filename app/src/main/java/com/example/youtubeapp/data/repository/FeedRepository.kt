@@ -5,6 +5,8 @@ import android.util.Log
 import com.example.youtubeapp.data.model.SearchResult
 import com.example.youtubeapp.data.model.Video
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -98,21 +100,25 @@ class FeedRepository(context: Context) {
     }
 
     /**
-     * Recommendations seeded by the user's watch history: related lists of the
-     * most recent videos, deduplicated and with the seeds themselves removed.
+     * Recommendations seeded by the user's watch history and subscriptions:
+     * related lists of the strongest seeds, deduplicated and with the seeds
+     * themselves removed. The /next calls run in parallel (each one needs a
+     * full request through the proxy chain).
      */
     suspend fun recommendations(seeds: List<String>): List<Video> = withContext(Dispatchers.IO) {
         val seedSet = seeds.toHashSet()
+        val lists = seeds.take(MAX_SEEDS).map { seed ->
+            async {
+                runCatching { related(seed) }
+                    .onSuccess { Log.i(TAG, "recommendations: seed=$seed -> ${it.size} items") }
+                    .onFailure { Log.w(TAG, "recommendations: seed=$seed failed: ${it.message}") }
+                    .getOrDefault(emptyList())
+            }
+        }.awaitAll()
         val result = LinkedHashMap<String, Video>()
-        for (seed in seeds.take(MAX_SEEDS)) {
-            try {
-                val items = related(seed)
-                Log.i(TAG, "recommendations: seed=$seed -> ${items.size} items")
-                for (v in items) {
-                    if (v.id !in seedSet) result.putIfAbsent(v.id, v)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "recommendations: seed=$seed failed: ${e.message}")
+        for (items in lists) {
+            for (v in items) {
+                if (v.id !in seedSet) result.putIfAbsent(v.id, v)
             }
         }
         result.values.toList()
@@ -398,8 +404,8 @@ class FeedRepository(context: Context) {
         private const val TAG = "FeedRepository"
         private const val WEB_CLIENT_VERSION = "2.20260708.00.00"
 
-        /** How many watched videos seed the recommendation chain. */
-        private const val MAX_SEEDS = 3
+        /** How many seeds (watch history + subscriptions) feed the chain. */
+        private const val MAX_SEEDS = 5
 
         const val USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +

@@ -40,6 +40,7 @@ class PlayerActivity : AppCompatActivity() {
     private var videoId: String = ""
     private var videoTitle: String = ""
     private var channelTitle: String = ""
+    private var channelId: String = ""
     private var accessToken: String? = null
     private var captionTracks: List<CaptionTrack> = emptyList()
     private var currentQuality: VideoQuality = VideoQuality.DEFAULT
@@ -82,6 +83,7 @@ class PlayerActivity : AppCompatActivity() {
         videoId = intent.getStringExtra(EXTRA_VIDEO_ID) ?: ""
         videoTitle = intent.getStringExtra(EXTRA_VIDEO_TITLE) ?: ""
         channelTitle = intent.getStringExtra(EXTRA_CHANNEL_TITLE) ?: ""
+        channelId = intent.getStringExtra(EXTRA_CHANNEL_ID) ?: ""
 
         if (videoId.isBlank()) {
             finish()
@@ -92,7 +94,7 @@ class PlayerActivity : AppCompatActivity() {
         // (skipped in incognito mode inside WatchHistory.add)
         lastPositionMs = 0L
         pendingWatchMs = 0L
-        WatchHistory.add(this, videoId)
+        WatchHistory.add(this, videoId, channelId = channelId)
 
         lifecycleScope.launch {
             accessToken = AuthRepository.getAccessToken(this@PlayerActivity)
@@ -485,12 +487,13 @@ class PlayerActivity : AppCompatActivity() {
                 .centerCrop()
                 .into(row.findViewById(R.id.relatedThumbnail))
             row.setOnClickListener {
-                WatchHistory.add(this@PlayerActivity, item.id)
+                WatchHistory.add(this@PlayerActivity, item.id, channelId = item.channelId)
                 startActivity(
                     Intent(this@PlayerActivity, PlayerActivity::class.java).apply {
                         putExtra(EXTRA_VIDEO_ID, item.id)
                         putExtra(EXTRA_VIDEO_TITLE, item.title)
                         putExtra(EXTRA_CHANNEL_TITLE, item.channelTitle)
+                        putExtra(EXTRA_CHANNEL_ID, item.channelId)
                     }
                 )
                 finish()
@@ -633,7 +636,7 @@ class PlayerActivity : AppCompatActivity() {
             lastPositionMs = position
         }
         if (pendingWatchMs > 0) {
-            WatchHistory.add(this, videoId, pendingWatchMs)
+            WatchHistory.add(this, videoId, pendingWatchMs, channelId)
             Log.i(TAG, "watch time flushed: ${pendingWatchMs}ms for $videoId")
             pendingWatchMs = 0
         }
@@ -650,5 +653,6 @@ class PlayerActivity : AppCompatActivity() {
         const val EXTRA_VIDEO_ID = "extra_video_id"
         const val EXTRA_VIDEO_TITLE = "extra_video_title"
         const val EXTRA_CHANNEL_TITLE = "extra_channel_title"
+        const val EXTRA_CHANNEL_ID = "extra_channel_id"
     }
 }
