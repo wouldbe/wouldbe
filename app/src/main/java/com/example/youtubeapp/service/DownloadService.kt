@@ -162,16 +162,10 @@ class DownloadService : Service() {
      * segments into one fMP4 file.
      */
     private fun downloadHls(masterUrl: String, outFile: File, task: DownloadTask) {
-        val maxHeight = when (task.quality) {
-            VideoQuality.LOW -> 360
-            VideoQuality.MEDIUM -> 480
-            VideoQuality.HD -> 720
-            VideoQuality.FULL_HD -> 1080
-            VideoQuality.FOUR_K -> 2160
-        }
+        val targetBitrate = task.quality.targetBitrate
 
         val master = fetchText(masterUrl)
-        val variantUrl = pickVariant(master, masterUrl, maxHeight)
+        val variantUrl = pickVariant(master, masterUrl, targetBitrate)
             ?: throw IOException("no HLS variant")
 
         val playlist = fetchText(variantUrl)
@@ -238,27 +232,36 @@ class DownloadService : Service() {
         }
     }
 
-    /** Picks the HLS rendition with height <= maxHeight, closest to it. */
-    private fun pickVariant(master: String, masterUrl: String, maxHeight: Int): String? {
+    /**
+     * Picks the HLS rendition whose BANDWIDTH is closest to [targetBitrate]
+     * without exceeding it (falls back to the smallest rendition otherwise).
+     */
+    private fun pickVariant(master: String, masterUrl: String, targetBitrate: Int): String? {
         val lines = master.lines()
-        val candidates = mutableListOf<Pair<Int, String>>()
-        var pendingHeight: Int? = null
+        // bandwidth (bps), height, uri
+        val candidates = mutableListOf<Triple<Int, Int, String>>()
+        var pendingBandwidth: Int? = null
+        var pendingHeight = 0
 
         for (line in lines) {
             val trimmed = line.trim()
             if (trimmed.startsWith("#EXT-X-STREAM-INF:")) {
+                pendingBandwidth = Regex("BANDWIDTH=(\\d+)")
+                    .find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: 0
                 pendingHeight = Regex("RESOLUTION=\\d+x(\\d+)")
-                    .find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
-            } else if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && pendingHeight != null) {
-                candidates.add(pendingHeight to trimmed)
-                pendingHeight = null
+                    .find(trimmed)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            } else if (trimmed.isNotEmpty() && !trimmed.startsWith("#") && pendingBandwidth != null) {
+                candidates.add(Triple(pendingBandwidth, pendingHeight, trimmed))
+                pendingBandwidth = null
+                pendingHeight = 0
             }
         }
         if (candidates.isEmpty()) return null
 
-        val eligible = candidates.filter { it.first <= maxHeight }
-        val chosen = eligible.maxByOrNull { it.first } ?: candidates.minByOrNull { it.first }!!
-        val uri = chosen.second
+        val chosen = candidates.filter { it.first in 1..targetBitrate }.maxByOrNull { it.first }
+            ?: candidates.minByOrNull { it.first }!!
+        Log.i(TAG, "HLS variant: ${chosen.first} bps (target $targetBitrate bps, ${chosen.second}p)")
+        val uri = chosen.third
         return if (uri.startsWith("http")) uri else java.net.URI(masterUrl).resolve(uri).toString()
     }
 

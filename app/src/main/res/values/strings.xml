@@ -8,6 +8,11 @@
     <string name="player_loading_stream">Загрузка потока…</string>
     <string name="player_stream_failed">Не удалось получить поток: %1$s</string>
     <string name="player_no_related">Похожие видео не найдены</string>
+    <string name="proxy_fetch">Получить прокси</string>
+    <string name="proxy_fetching">Поиск прокси…</string>
+    <string name="proxy_fetch_error">Не удалось получить прокси: %1$s</string>
+    <string name="proxy_fetch_empty">Прокси не найдены, повторите попытку позже</string>
+    <string name="proxy_fetch_done">Найдено прокси: %1$d (с наименьшим пингом)</string>
     <string name="default_web_client_id">864285384604-60cf9lv1rlp2b0eup14oce34tblilsak.apps.googleusercontent.com</string>
     <string name="youtube_api_key" translatable="false">AIzaSyDuwzeSfQfl16uPcI1Qb93sQQGJUcBVfw4</string>
 </resources>

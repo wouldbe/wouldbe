@@ -423,6 +423,43 @@
                         android:layout_marginTop="12dp">
 
                         <com.google.android.material.button.MaterialButton
+                            android:id="@+id/fetchProxyButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/proxy_fetch" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/proxyCandidatesRow"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Найденные прокси:" />
+
+                        <Spinner
+                            android:id="@+id/proxyCandidatesSpinner"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1" />
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="12dp">
+
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/saveProxyButton"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"

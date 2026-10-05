@@ -149,17 +149,7 @@ class PlayerActivity : AppCompatActivity() {
         val mediaSourceFactory = HlsMediaSource.Factory(httpDataSource)
             .setAllowChunklessPreparation(true)
 
-        val qualityHeight = when (currentQuality) {
-            VideoQuality.LOW -> 360
-            VideoQuality.MEDIUM -> 480
-            VideoQuality.HD -> 720
-            VideoQuality.FULL_HD -> 1080
-            VideoQuality.FOUR_K -> 2160
-        }
-
-        val selector = DefaultTrackSelector(this).apply {
-            setParameters(buildUponParameters().setMaxVideoSize(3840, 2160))
-        }
+        val selector = DefaultTrackSelector(this)
         trackSelector = selector
 
         val player = ExoPlayer.Builder(this)
@@ -182,7 +172,7 @@ class PlayerActivity : AppCompatActivity() {
         binding.playerView.visibility = View.VISIBLE
         binding.playerWebView.visibility = View.GONE
 
-        applyQualityConstraint(qualityHeight, selector)
+        applyQualityConstraint(selector, data)
         player.setMediaItem(buildMediaItem(data))
         player.prepare()
         player.playWhenReady = settingsRepository.autoPlay
@@ -221,9 +211,36 @@ class PlayerActivity : AppCompatActivity() {
         return builder.build()
     }
 
-    private fun applyQualityConstraint(maxHeight: Int, selector: DefaultTrackSelector) {
-        selector.setParameters(
-            selector.buildUponParameters().setMaxVideoSize(3840, maxHeight)
+    /** Fallback ladder when the video exposes no bitrate information. */
+    private fun defaultQualityHeight(quality: VideoQuality): Int = when (quality) {
+        VideoQuality.LOW -> 360
+        VideoQuality.MEDIUM -> 480
+        VideoQuality.HD -> 720
+        VideoQuality.FULL_HD -> 1080
+        VideoQuality.FOUR_K -> 2160
+    }
+
+    /**
+     * Bitrate-driven quality constraint: the rendition of this video with the
+     * bitrate closest to the target determines both the height cap and the
+     * bandwidth cap (with headroom for HLS rendition variance).
+     */
+    private fun applyQualityConstraint(
+        selector: DefaultTrackSelector,
+        data: StreamRepository.StreamResult?
+    ) {
+        val pick = data?.formatByBitrate(currentQuality.targetBitrate)
+        val maxHeight = pick?.height ?: defaultQualityHeight(currentQuality)
+        val maxBitrate = pick?.bitrate?.let { it + it / 2 }
+
+        val params = selector.buildUponParameters().setMaxVideoSize(3840, maxHeight)
+        if (maxBitrate != null) params.setMaxVideoBitrate(maxBitrate)
+        selector.setParameters(params)
+        Log.i(
+            TAG,
+            "quality=${currentQuality.name} target=${currentQuality.targetBitrate}bps " +
+                "pick=${pick?.let { "${it.height}p@${it.bitrate}bps" } ?: "n/a"} " +
+                "constraint=${maxHeight}p/${maxBitrate ?: "unset"}bps"
         )
     }
 
@@ -340,25 +357,18 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun setupQualitySelector() {
-        val qualities = VideoQuality.values().map { it.name }
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, qualities)
+        val qualities = VideoQuality.values()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, qualities.map { it.label })
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         binding.qualitySpinner.adapter = adapter
-        binding.qualitySpinner.setSelection(qualities.indexOf(currentQuality.name))
+        binding.qualitySpinner.setSelection(currentQuality.ordinal)
 
         binding.qualitySpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                currentQuality = VideoQuality.valueOf(qualities[position])
+                currentQuality = qualities[position]
                 settingsRepository.videoQuality = currentQuality
 
-                val height = when (currentQuality) {
-                    VideoQuality.LOW -> 360
-                    VideoQuality.MEDIUM -> 480
-                    VideoQuality.HD -> 720
-                    VideoQuality.FULL_HD -> 1080
-                    VideoQuality.FOUR_K -> 2160
-                }
-                trackSelector?.let { applyQualityConstraint(height, it) }
+                trackSelector?.let { applyQualityConstraint(it, streamResult) }
                 evaluateJs("setQuality('${currentQuality.name}')")
             }
 

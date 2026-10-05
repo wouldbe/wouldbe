@@ -12,6 +12,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
 
 /**
  * Extracts playable stream URLs from YouTube (innertube player API).
@@ -66,6 +67,14 @@ class StreamRepository(context: Context) {
         fun bestVideoFormat(maxHeight: Int): StreamFormat? =
             formats.filter { it.hasVideo && !it.hasAudio && (it.height ?: 0) <= maxHeight }
                 .maxByOrNull { it.height ?: 0 }
+
+        /**
+         * Format of this video whose bitrate is closest to [targetBitrate] -
+         * quality is picked from the video's own bitrate ladder.
+         */
+        fun formatByBitrate(targetBitrate: Int): StreamFormat? =
+            formats.filter { it.hasVideo && (it.bitrate ?: 0) > 0 }
+                .minByOrNull { abs((it.bitrate ?: 0) - targetBitrate) }
 
         val bestAudioFormat: StreamFormat?
             get() = formats.filter { it.hasAudio && !it.hasVideo }.maxByOrNull { it.bitrate ?: 0 }
