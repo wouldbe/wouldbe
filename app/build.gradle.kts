@@ -40,7 +40,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // -PskipReleaseSigning=true -> unsigned bundle/apk (e.g. for Play App Signing)
+            val skipSigning = providers.gradleProperty("skipReleaseSigning").orNull == "true"
+            signingConfig = if (skipSigning) null else signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

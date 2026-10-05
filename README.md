@@ -77,6 +77,18 @@ gradlew assembleRelease assembleDebug
 adb install -r dist/YouTubeApp-1.0-release.apk
 ```
 
+### AAB без подписи (для Google Play App Signing)
+
+```bash
+gradlew bundleRelease -PskipReleaseSigning=true
+```
+
+Результат — `app/build/outputs/bundle/release/app-release.aab` **без подписи**
+(в архиве нет `META-INF/MANIFEST.MF`/`*.RSA`); флаг также отключает подпись APK,
+поэтому обычный `gradlew assembleRelease` без флага собирает подписанный установщик,
+как раньше. Копия: `dist/YouTubeApp-1.0-unsigned.aab` (upload-ключ накладывает
+Google Play при включении Play App Signing).
+
 **Подпись release** — `release.keystore` (alias `youtubeapp`, пароль в gitignore-файле `keystore.properties`,
 можно переопределить переменной окружения `RELEASE_STORE_PASSWORD`). Ни ключ, ни пароль в git не попадают.
 
